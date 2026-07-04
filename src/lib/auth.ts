@@ -23,24 +23,29 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         const { email, password } = parsed.data;
 
-        const user = await db.user.findUnique({
-          where: { email },
-          include: { school: true },
-        });
+        try {
+          const user = await db.user.findUnique({
+            where: { email },
+            include: { school: true },
+          });
 
-        if (!user || !user.active) return null;
+          if (!user || !user.active) return null;
 
-        const passwordMatch = await bcrypt.compare(password, user.password);
-        if (!passwordMatch) return null;
+          const passwordMatch = await bcrypt.compare(password, user.password);
+          if (!passwordMatch) return null;
 
-        return {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          schoolId: user.schoolId,
-          schoolName: user.school?.name ?? null,
-        };
+          return {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            schoolId: user.schoolId,
+            schoolName: user.school?.name ?? null,
+          };
+        } catch (err) {
+          console.error("[authorize] ERROR:", err);
+          return null;
+        }
       },
     }),
   ],
