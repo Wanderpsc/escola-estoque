@@ -1,0 +1,237 @@
+// Schema do Sistema de Controle de Estoque Escolar
+// Prisma ORM com PostgreSQL (Neon)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  directUrl = env("DATABASE_URL_UNPOOLED")
+}
+
+// ─────────────────────────────────────────────
+// Perfil / Escola
+// ─────────────────────────────────────────────
+
+model School {
+  id         String  @id @default(cuid())
+  name       String
+  cnpj       String  @unique
+  ie         String?
+  address    String
+  number     String
+  complement String?
+  district   String
+  city       String
+  state      String
+  zipCode    String
+  phone      String
+  email      String
+  director   String
+  active     Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users     User[]
+  suppliers Supplier[]
+  programs  Program[]
+  products  Product[]
+}
+
+model User {
+  id       String  @id @default(cuid())
+  name     String
+  email    String  @unique
+  password String
+  cpf      String?
+  phone    String?
+  role     String  @default("USER")
+  // SUPER_ADMIN | SCHOOL_ADMIN | MANAGER | ACCOUNTANT | NUTRITIONIST | USER
+  schoolId String?
+  school   School? @relation(fields: [schoolId], references: [id])
+  active   Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stockEntries StockEntry[]
+  stockExits   StockExit[]
+}
+
+model Supplier {
+  id          String  @id @default(cuid())
+  name        String
+  cnpj        String
+  ie          String?
+  address     String
+  number      String
+  complement  String?
+  district    String
+  city        String
+  state       String
+  zipCode     String
+  phone       String
+  email       String?
+  contact     String?
+  bankName    String?
+  bankAgency  String?
+  bankAccount String?
+  active      Boolean @default(true)
+  schoolId    String
+  school      School  @relation(fields: [schoolId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  entries StockEntry[]
+}
+
+// ─────────────────────────────────────────────
+// Programas: MERENDA | MANUTENCAO | PDDE
+// ─────────────────────────────────────────────
+
+model Program {
+  id          String  @id @default(cuid())
+  name        String
+  type        String  // MERENDA | MANUTENCAO | PDDE
+  description String?
+  budget      Float   @default(0)
+  schoolId    String
+  school      School  @relation(fields: [schoolId], references: [id])
+  active      Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products        Product[]
+  stockEntries    StockEntry[]
+  stockExits      StockExit[]
+  budgetMovements BudgetMovement[]
+}
+
+// ─────────────────────────────────────────────
+// Produtos com código NCM (Receita Federal)
+// ─────────────────────────────────────────────
+
+model Product {
+  id          String  @id @default(cuid())
+  name        String
+  description String?
+  ncmCode     String
+  unit        String  // KG | UN | LT | CX | PCT | DZ | M
+  minStock    Float   @default(0)
+  programId   String
+  program     Program @relation(fields: [programId], references: [id])
+  schoolId    String
+  school      School  @relation(fields: [schoolId], references: [id])
+  active      Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  entryItems EntryItem[]
+  exitItems  ExitItem[]
+}
+
+// ─────────────────────────────────────────────
+// Nota Fiscal + Entradas
+// ─────────────────────────────────────────────
+
+model StockEntry {
+  id            String   @id @default(cuid())
+  invoiceNumber String
+  invoiceSeries String?
+  invoiceKey    String?
+  invoiceDate   DateTime
+  totalValue    Float
+  supplierId    String
+  supplier      Supplier @relation(fields: [supplierId], references: [id])
+  programId     String
+  program       Program  @relation(fields: [programId], references: [id])
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  observations  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items EntryItem[]
+}
+
+model EntryItem {
+  id         String     @id @default(cuid())
+  entryId    String
+  entry      StockEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  productId  String
+  product    Product    @relation(fields: [productId], references: [id])
+  quantity   Float
+  unitPrice  Float
+  totalPrice Float
+  expiresAt  DateTime?
+  lot        String?
+
+  createdAt DateTime @default(now())
+}
+
+// ─────────────────────────────────────────────
+// Saídas de Estoque
+// ─────────────────────────────────────────────
+
+model StockExit {
+  id           String   @id @default(cuid())
+  exitDate     DateTime
+  reason       String   // CONSUMO | VENCIMENTO | DOACAO | PERDA | OUTRO
+  programId    String
+  program      Program  @relation(fields: [programId], references: [id])
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+  observations String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items ExitItem[]
+}
+
+model ExitItem {
+  id         String    @id @default(cuid())
+  exitId     String
+  exit       StockExit @relation(fields: [exitId], references: [id], onDelete: Cascade)
+  productId  String
+  product    Product   @relation(fields: [productId], references: [id])
+  quantity   Float
+  unitPrice  Float
+  totalPrice Float
+
+  createdAt DateTime @default(now())
+}
+
+// ─────────────────────────────────────────────
+// Controle Financeiro / Orçamentário
+// ─────────────────────────────────────────────
+
+model BudgetMovement {
+  id          String   @id @default(cuid())
+  programId   String
+  program     Program  @relation(fields: [programId], references: [id])
+  type        String   // CREDIT | DEBIT
+  amount      Float
+  description String
+  reference   String?
+  date        DateTime
+
+  createdAt DateTime @default(now())
+}
+
+// ─────────────────────────────────────────────
+// Tabela de códigos NCM (Receita Federal)
+// ─────────────────────────────────────────────
+
+model NcmCode {
+  id          String  @id @default(cuid())
+  code        String  @unique
+  description String
+  category    String?
+}
