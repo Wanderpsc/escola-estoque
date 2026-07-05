@@ -18,7 +18,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         password: { label: "Senha", type: "password" },
       },
       async authorize(credentials) {
+        console.log("[authorize] credentials:", JSON.stringify(credentials));
         const parsed = loginSchema.safeParse(credentials);
+        console.log("[authorize] parsed:", parsed.success, !parsed.success ? JSON.stringify((parsed as any).error?.issues) : "ok");
         if (!parsed.success) return null;
 
         const { email, password } = parsed.data;
@@ -28,10 +30,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             where: { email },
             include: { school: true },
           });
+          console.log("[authorize] user found:", !!user, "active:", user?.active);
 
           if (!user || !user.active) return null;
 
           const passwordMatch = await bcrypt.compare(password, user.password);
+          console.log("[authorize] passwordMatch:", passwordMatch);
           if (!passwordMatch) return null;
 
           return {

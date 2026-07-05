@@ -1,21 +1,14 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import bcrypt from "bcryptjs";
+import { z } from "zod";
+
+const loginSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(6),
+});
 
 export async function GET() {
-  try {
-    const user = await db.user.findUnique({ where: { email: "admin@escolaestoque.com" } });
-    if (!user) return NextResponse.json({ error: "user not found" });
-
-    const passwordMatch = await bcrypt.compare("admin@2025", user.password);
-    return NextResponse.json({
-      ok: true,
-      userFound: true,
-      active: user.active,
-      passwordMatch,
-      passwordHash: user.password.substring(0, 10) + "...",
-    });
-  } catch (err: any) {
-    return NextResponse.json({ ok: false, error: err?.message ?? String(err) }, { status: 500 });
-  }
+  // Simular exatamente o que authorize recebe do NextAuth v5 beta
+  const testCredentials = { email: "admin@escolaestoque.com", password: "admin@2025" };
+  const parsed = loginSchema.safeParse(testCredentials);
+  return NextResponse.json({ parsed: parsed.success, data: parsed.success ? parsed.data : (parsed as any).error?.errors });
 }
