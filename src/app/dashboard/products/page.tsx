@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
-import { Plus, Package, Search, Pencil, Trash2 } from "lucide-react";
+import { Plus, Package, Search, Pencil, Trash2, Barcode } from "lucide-react";
 import { PageHeader, Button, Badge, Modal, Input, Select, EmptyState, Table, Th, Td } from "@/components/ui";
 import { UNITS, PROGRAM_TYPES } from "@/lib/utils";
+import BarcodeScanner from "@/components/BarcodeScanner";
 
 interface Product {
   id: string; name: string; ncmCode: string; unit: string; minStock: number;
@@ -146,8 +147,9 @@ export default function ProductsPage() {
   const [selected, setSelected] = useState<Product | null>(null);
   const [search, setSearch] = useState("");
   const [filterProgram, setFilterProgram] = useState("");
-  const [form, setForm] = useState({ name: "", ncmCode: "", unit: "KG", minStock: 0, programId: "" });
+  const [form, setForm] = useState({ name: "", ncmCode: "", unit: "KG", minStock: 0, programId: "", barcode: "" });
   const [saving, setSaving] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -159,9 +161,9 @@ export default function ProductsPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  function openAdd() { setForm({ name: "", ncmCode: "", unit: "KG", minStock: 0, programId: "" }); setSelected(null); setModal("add"); }
+  function openAdd() { setForm({ name: "", ncmCode: "", unit: "KG", minStock: 0, programId: "", barcode: "" }); setSelected(null); setModal("add"); }
   function openEdit(p: Product) {
-    setForm({ name: p.name, ncmCode: p.ncmCode, unit: p.unit, minStock: p.minStock, programId: "" });
+    setForm({ name: p.name, ncmCode: p.ncmCode, unit: p.unit, minStock: p.minStock, programId: "", barcode: (p as any).barcode ?? "" });
     setSelected(p); setModal("edit");
   }
   function openDelete(p: Product) { setSelected(p); setModal("delete"); }
@@ -174,7 +176,9 @@ export default function ProductsPage() {
     try {
       const url = selected ? `/api/products/${selected.id}` : "/api/products";
       const method = selected ? "PATCH" : "POST";
-      const body = selected ? { name: form.name, ncmCode: form.ncmCode, unit: form.unit, minStock: Number(form.minStock) } : { ...form, minStock: Number(form.minStock) };
+      const body = selected
+        ? { name: form.name, ncmCode: form.ncmCode, unit: form.unit, minStock: Number(form.minStock), barcode: form.barcode || null }
+        : { ...form, minStock: Number(form.minStock), barcode: form.barcode || null };
       const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? "Erro ao salvar produto"); return; }
@@ -231,6 +235,7 @@ export default function ProductsPage() {
               <tr>
                 <Th>Produto</Th>
                 <Th>NCM</Th>
+                <Th>Cód. Barras</Th>
                 <Th>Programa</Th>
                 <Th>Unidade</Th>
                 <Th>Saldo</Th>
@@ -243,6 +248,11 @@ export default function ProductsPage() {
                 <tr key={p.id} className="hover:bg-slate-50">
                   <Td><span className="font-medium">{p.name}</span></Td>
                   <Td className="text-slate-500 font-mono text-xs">{p.ncmCode}</Td>
+                  <Td className="font-mono text-xs text-slate-400">
+                    {(p as any).barcode
+                      ? <span className="flex items-center gap-1"><Barcode className="w-3 h-3" />{(p as any).barcode}</span>
+                      : <span className="text-slate-200">—</span>}
+                  </Td>
                   <Td>
                     <Badge color={p.program?.type === "MERENDA" ? "green" : p.program?.type === "MANUTENCAO" ? "blue" : "purple"}>
                       {PROGRAM_TYPES[p.program?.type as keyof typeof PROGRAM_TYPES]?.label ?? p.program?.type}
@@ -296,6 +306,29 @@ export default function ProductsPage() {
               options={[{ value: "", label: "— Selecione —" }, ...programs.map((p) => ({ value: p.id, label: `${p.name} (${PROGRAM_TYPES[p.type as keyof typeof PROGRAM_TYPES]?.label ?? p.type})` }))]}
             />
           )}
+
+          {/* Código de barras */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Código de Barras (EAN / Code-128)</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={form.barcode}
+                onChange={(e) => setForm({ ...form, barcode: e.target.value })}
+                placeholder="Ex: 7891234567890"
+                className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                type="button"
+                onClick={() => setShowScanner(true)}
+                className="px-3 py-2 border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-50 hover:border-blue-400 transition-colors"
+                title="Escanear código de barras"
+              >
+                <Barcode className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-xs text-slate-400 mt-1">Opcional. Permite buscar o produto por leitura óptica nas entradas de estoque.</p>
+          </div>
         </div>
         <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
           <Button variant="secondary" onClick={closeModal}>Cancelar</Button>
@@ -310,6 +343,14 @@ export default function ProductsPage() {
           <Button variant="danger" onClick={handleDelete} loading={saving}>Excluir</Button>
         </div>
       </Modal>
+
+      {showScanner && (
+        <BarcodeScanner
+          title="Escanear código do produto"
+          onDetected={(code) => { setForm((f) => ({ ...f, barcode: code })); setShowScanner(false); }}
+          onClose={() => setShowScanner(false)}
+        />
+      )}
     </div>
   );
 }

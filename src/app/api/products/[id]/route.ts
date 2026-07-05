@@ -9,6 +9,7 @@ const updateSchema = z.object({
   ncmCode: z.string().optional(),
   unit: z.string().optional(),
   minStock: z.number().min(0).optional(),
+  barcode: z.string().optional().nullable(),
   active: z.boolean().optional(),
 });
 

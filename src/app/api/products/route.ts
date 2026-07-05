@@ -10,6 +10,7 @@ const productSchema = z.object({
   ncmCode: z.string().min(4),
   unit: z.string().min(1),
   minStock: z.number().min(0).default(0),
+  barcode: z.string().optional().nullable(),
   programId: z.string(),
 });
 
@@ -24,6 +25,17 @@ export async function GET(req: NextRequest) {
 
   const where: any = role === "SUPER_ADMIN" ? {} : { schoolId: schoolId ?? "" };
   if (programId) where.programId = programId;
+
+  // Busca por código de barras
+  const barcode = url.searchParams.get("barcode");
+  if (barcode) {
+    const product = await db.product.findFirst({
+      where: { ...where, barcode, active: true },
+      include: { program: { select: { name: true, type: true } } },
+    });
+    if (!product) return NextResponse.json({ error: "Produto não encontrado" }, { status: 404 });
+    return NextResponse.json(product);
+  }
 
   const products = await db.product.findMany({
     where: { ...where, active: true },

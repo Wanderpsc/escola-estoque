@@ -135,6 +135,7 @@ model Product {
   ncmCode     String
   unit        String  // KG | UN | LT | CX | PCT | DZ | M
   minStock    Float   @default(0)
+  barcode     String? // EAN-13, EAN-8, Code-128, etc.
   programId   String
   program     Program @relation(fields: [programId], references: [id])
   schoolId    String

@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
-import { Plus } from "lucide-react";
+import { Plus, Trash2, Barcode, ScanLine, X } from "lucide-react";
 import { PageHeader, Button, Badge, Modal, Input, Select, EmptyState, Table, Th, Td } from "@/components/ui";
 import { formatCurrency, formatDate, PROGRAM_TYPES } from "@/lib/utils";
+import BarcodeScanner from "@/components/BarcodeScanner";
 
 interface Entry {
   id: string; invoiceNumber: string; invoiceDate: string; totalValue: number;
@@ -12,11 +13,19 @@ interface Entry {
   items: Array<{ product: { name: string; unit: string }; quantity: number; unitPrice: number; totalPrice: number; lot?: string }>;
 }
 
-const EMPTY_FORM = {
-  programId: "", productId: "", quantity: 1, unitPrice: 0,
+interface ItemRow {
+  productId: string;
+  quantity: string;
+  unitPrice: string;
+  lot: string;
+}
+
+const EMPTY_HEADER = {
+  programId: "", supplierId: "",
   invoiceNumber: "", invoiceDate: new Date().toISOString().split("T")[0],
-  supplierId: "", lot: "", observations: "",
+  observations: "",
 };
+const EMPTY_ITEM: ItemRow = { productId: "", quantity: "1", unitPrice: "0", lot: "" };
 
 export default function StockEntriesPage() {
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -25,8 +34,10 @@ export default function StockEntriesPage() {
   const [saving, setSaving] = useState(false);
   const [suppliers, setSuppliers] = useState<Array<{ id: string; name: string }>>([]);
   const [programs, setPrograms] = useState<Array<{ id: string; name: string; type: string }>>([]);
-  const [products, setProducts] = useState<Array<{ id: string; name: string; unit: string; programId: string }>>([]);
-  const [form, setForm] = useState(EMPTY_FORM);
+  const [products, setProducts] = useState<Array<{ id: string; name: string; unit: string; programId: string; barcode?: string }>>([]);
+  const [header, setHeader] = useState(EMPTY_HEADER);
+  const [items, setItems] = useState<ItemRow[]>([{ ...EMPTY_ITEM }]);
+  const [scanningRowIndex, setScanningRowIndex] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -43,38 +54,71 @@ export default function StockEntriesPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const filteredProducts = products.filter((p) => !form.programId || p.programId === form.programId);
-  const selectedProduct = products.find((p) => p.id === form.productId);
-  const totalValue = Number(form.quantity) * Number(form.unitPrice);
+  const filteredProducts = products.filter((p) => !header.programId || p.programId === header.programId);
 
-  function handleProductChange(productId: string) {
-    setForm((f) => ({ ...f, productId }));
+  function addItem() { setItems((prev) => [...prev, { ...EMPTY_ITEM }]); }
+  function removeItem(i: number) { setItems((prev) => prev.filter((_, idx) => idx !== i)); }
+  function setItemField(i: number, field: keyof ItemRow, val: string) {
+    setItems((prev) => prev.map((row, idx) => idx === i ? { ...row, [field]: val } : row));
+  }
+
+  const totalNF = items.reduce((s, r) => s + Number(r.quantity || 0) * Number(r.unitPrice || 0), 0);
+
+  // Busca produto por codigo de barras e preenche a linha
+  async function handleBarcodeDetected(barcode: string, rowIndex: number) {
+    setScanningRowIndex(null);
+    // Busca local primeiro
+    const local = products.find((p) => p.barcode === barcode);
+    if (local) {
+      setItemField(rowIndex, "productId", local.id);
+      toast.success(`Produto identificado: ${local.name}`);
+      return;
+    }
+    // Busca na API
+    const res = await fetch(`/api/products?barcode=${encodeURIComponent(barcode)}`);
+    if (res.ok) {
+      const prod = await res.json();
+      // Adiciona ao cache local
+      setProducts((prev) => prev.some((p) => p.id === prod.id) ? prev : [...prev, prod]);
+      setItemField(rowIndex, "productId", prod.id);
+      toast.success(`Produto identificado: ${prod.name}`);
+    } else {
+      toast.error(`Codigo ${barcode} nao encontrado. Cadastre o produto com este codigo de barras primeiro.`);
+    }
   }
 
   async function handleSave() {
-    if (!form.programId || !form.productId || !form.supplierId || !form.invoiceNumber || !form.invoiceDate) {
-      toast.error("Preencha todos os campos obrigatórios (*)"); return;
+    if (!header.programId || !header.supplierId || !header.invoiceNumber || !header.invoiceDate) {
+      toast.error("Preencha todos os campos obrigatorios (*)"); return;
     }
-    if (Number(form.quantity) <= 0) { toast.error("Quantidade deve ser maior que zero"); return; }
+    const validItems = items.filter((r) => r.productId && Number(r.quantity) > 0);
+    if (validItems.length === 0) { toast.error("Adicione ao menos 1 produto"); return; }
+
     setSaving(true);
     try {
       const res = await fetch("/api/stock/entries", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          programId: form.programId,
-          supplierId: form.supplierId,
-          invoiceNumber: form.invoiceNumber,
-          invoiceDate: form.invoiceDate,
-          observations: form.observations,
-          items: [{ productId: form.productId, quantity: Number(form.quantity), unitPrice: Number(form.unitPrice), lot: form.lot || undefined }],
+          programId: header.programId,
+          supplierId: header.supplierId,
+          invoiceNumber: header.invoiceNumber,
+          invoiceDate: header.invoiceDate,
+          observations: header.observations,
+          items: validItems.map((r) => ({
+            productId: r.productId,
+            quantity: Number(r.quantity),
+            unitPrice: Number(r.unitPrice),
+            lot: r.lot || undefined,
+          })),
         }),
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? data.message ?? "Erro ao registrar entrada"); return; }
-      toast.success("Entrada registrada!");
+      toast.success(`Nota Fiscal ${header.invoiceNumber} registrada com ${validItems.length} produto(s)!`);
       setModal(false);
-      setForm(EMPTY_FORM);
+      setHeader(EMPTY_HEADER);
+      setItems([{ ...EMPTY_ITEM }]);
       load();
     } finally { setSaving(false); }
   }
@@ -97,7 +141,7 @@ export default function StockEntriesPage() {
   return (
     <div>
       <PageHeader title="Entradas de Estoque" description="Registre entradas de produtos por nota fiscal">
-        <Button onClick={() => setModal(true)}><Plus className="w-4 h-4" />Nova Entrada</Button>
+        <Button onClick={() => setModal(true)}><Plus className="w-4 h-4" />Nova Entrada (NF)</Button>
       </PageHeader>
 
       {loading ? (
@@ -109,15 +153,10 @@ export default function StockEntriesPage() {
           <Table>
             <thead>
               <tr>
-                <Th>Produto</Th>
-                <Th>Programa</Th>
-                <Th className="text-right">Qtd</Th>
-                <Th>Un.</Th>
-                <Th>Vl. Unit.</Th>
-                <Th>Vl. Total</Th>
-                <Th>Data</Th>
-                <Th>NF</Th>
-                <Th>Fornecedor</Th>
+                <Th>Produto</Th><Th>Programa</Th>
+                <Th className="text-right">Qtd</Th><Th>Un.</Th>
+                <Th>Vl. Unit.</Th><Th>Vl. Total</Th>
+                <Th>Data</Th><Th>NF</Th><Th>Fornecedor</Th>
               </tr>
             </thead>
             <tbody>
@@ -143,47 +182,121 @@ export default function StockEntriesPage() {
         </div>
       )}
 
-      <Modal open={modal} onClose={() => { setModal(false); setForm(EMPTY_FORM); }} title="Registrar Entrada de Produto" size="lg">
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <Select label="Programa *" value={form.programId}
-              onChange={(e) => setForm({ ...form, programId: e.target.value, productId: "" })}
-              options={[{ value: "", label: "— Selecione o programa —" }, ...programs.map((p) => ({ value: p.id, label: p.name }))]} />
-            <Select label="Produto *" value={form.productId}
-              onChange={(e) => handleProductChange(e.target.value)}
-              options={[{ value: "", label: form.programId ? "— Selecione o produto —" : "← Selecione o programa" }, ...filteredProducts.map((p) => ({ value: p.id, label: `${p.name} (${p.unit})` }))]} />
-          </div>
-          <div className="grid grid-cols-3 gap-4">
-            <Input label="Quantidade *" type="number" min={0.01} step={0.01} value={form.quantity}
-              onChange={(e) => setForm({ ...form, quantity: Number(e.target.value) })} />
-            <Input label="Valor Unitário (R$) *" type="number" min={0} step={0.01} value={form.unitPrice}
-              onChange={(e) => setForm({ ...form, unitPrice: Number(e.target.value) })} />
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Valor Total (auto)</label>
-              <div className="px-3 py-2.5 bg-green-50 border border-green-200 rounded-lg text-green-800 font-bold text-sm">{formatCurrency(totalValue)}</div>
+      <Modal open={modal} onClose={() => { setModal(false); setHeader(EMPTY_HEADER); setItems([{ ...EMPTY_ITEM }]); }} title="Registrar Nota Fiscal Completa" size="xl">
+        <div className="space-y-5">
+          {/* Cabecalho da NF */}
+          <div className="bg-slate-50 rounded-xl p-4 space-y-4">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Dados da Nota Fiscal</p>
+            <div className="grid grid-cols-2 gap-4">
+              <Select label="Programa *" value={header.programId}
+                onChange={(e) => setHeader({ ...header, programId: e.target.value })}
+                options={[{ value: "", label: "Selecione o programa" }, ...programs.map((p) => ({ value: p.id, label: p.name }))]} />
+              <Select label="Fornecedor *" value={header.supplierId}
+                onChange={(e) => setHeader({ ...header, supplierId: e.target.value })}
+                options={[{ value: "", label: "Selecione o fornecedor" }, ...suppliers.map((s) => ({ value: s.id, label: s.name }))]} />
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <Input label="Numero da NF *" value={header.invoiceNumber}
+                onChange={(e) => setHeader({ ...header, invoiceNumber: e.target.value })} placeholder="Ex: 000123" />
+              <Input label="Data de Entrada *" type="date" value={header.invoiceDate}
+                onChange={(e) => setHeader({ ...header, invoiceDate: e.target.value })} />
+              <Input label="Observacoes" value={header.observations}
+                onChange={(e) => setHeader({ ...header, observations: e.target.value })} />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <Input label="Nota Fiscal (número) *" value={form.invoiceNumber}
-              onChange={(e) => setForm({ ...form, invoiceNumber: e.target.value })} placeholder="Ex: 000123" />
-            <Input label="Data de Entrada *" type="date" value={form.invoiceDate}
-              onChange={(e) => setForm({ ...form, invoiceDate: e.target.value })} />
+
+          {/* Itens da NF */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                Produtos da Nota Fiscal ({items.filter((r) => r.productId).length}/{items.length})
+              </p>
+              <button onClick={addItem} className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium">
+                <Plus className="w-3 h-3" /> Adicionar produto
+              </button>
+            </div>
+
+            {/* Cabecalho das colunas */}
+            <div className="grid grid-cols-[2.5fr_1fr_1fr_1fr_auto_auto] gap-2 text-xs font-semibold text-slate-400 uppercase px-1 mb-1">
+              <span>Produto *</span><span>Qtd *</span><span>Vl. Unit. (R$) *</span><span>Total</span><span>Lote</span><span></span>
+            </div>
+
+            <div className="space-y-2">
+              {items.map((row, i) => {
+                const prod = products.find((p) => p.id === row.productId);
+                const rowTotal = Number(row.quantity || 0) * Number(row.unitPrice || 0);
+                return (
+                  <div key={i} className="grid grid-cols-[2.5fr_1fr_1fr_1fr_1fr_auto] gap-2 items-center bg-white border border-slate-200 rounded-lg px-3 py-2">
+                    {/* Produto com botao de scan */}
+                    <div className="flex gap-1">
+                      <select
+                        value={row.productId}
+                        onChange={(e) => setItemField(i, "productId", e.target.value)}
+                        className="flex-1 border border-slate-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="">Selecionar...</option>
+                        {filteredProducts.map((p) => (
+                          <option key={p.id} value={p.id}>{p.name} ({p.unit})</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => setScanningRowIndex(i)}
+                        title="Escanear codigo de barras"
+                        className="px-2 py-1.5 border border-slate-300 rounded-lg text-slate-500 hover:border-blue-400 hover:text-blue-600 transition-colors"
+                      >
+                        <Barcode className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <input type="number" step="0.001" min="0" value={row.quantity}
+                      onChange={(e) => setItemField(i, "quantity", e.target.value)}
+                      className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 w-full" />
+
+                    <input type="number" step="0.01" min="0" value={row.unitPrice}
+                      onChange={(e) => setItemField(i, "unitPrice", e.target.value)}
+                      className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 w-full" />
+
+                    <div className="text-sm font-semibold text-green-700 text-right">{formatCurrency(rowTotal)}</div>
+
+                    <input type="text" value={row.lot} placeholder="Lote"
+                      onChange={(e) => setItemField(i, "lot", e.target.value)}
+                      className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 w-full" />
+
+                    <button onClick={() => removeItem(i)} disabled={items.length === 1}
+                      className="text-slate-300 hover:text-red-500 disabled:opacity-20 p-1">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-          <Select label="Fornecedor *" value={form.supplierId}
-            onChange={(e) => setForm({ ...form, supplierId: e.target.value })}
-            options={[{ value: "", label: "— Selecione o fornecedor —" }, ...suppliers.map((s) => ({ value: s.id, label: s.name }))]} />
-          <div className="grid grid-cols-2 gap-4">
-            <Input label="Lote (opcional)" value={form.lot}
-              onChange={(e) => setForm({ ...form, lot: e.target.value })} placeholder="Ex: LOT-2025-01" />
-            <Input label="Observações" value={form.observations}
-              onChange={(e) => setForm({ ...form, observations: e.target.value })} />
+
+          {/* Total geral */}
+          <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-xl px-4 py-3">
+            <div>
+              <p className="text-xs text-green-600">Valor total da Nota Fiscal</p>
+              <p className="text-xs text-green-500">{items.filter((r) => r.productId).length} produto(s) validos</p>
+            </div>
+            <p className="text-2xl font-bold text-green-700">{formatCurrency(totalNF)}</p>
           </div>
-        </div>
-        <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
-          <Button variant="secondary" onClick={() => { setModal(false); setForm(EMPTY_FORM); }}>Cancelar</Button>
-          <Button onClick={handleSave} loading={saving}>Registrar Entrada</Button>
+
+          <div className="flex justify-end gap-3 pt-2 border-t border-slate-100">
+            <Button variant="secondary" onClick={() => { setModal(false); setHeader(EMPTY_HEADER); setItems([{ ...EMPTY_ITEM }]); }}>Cancelar</Button>
+            <Button onClick={handleSave} loading={saving}>Registrar NF Completa</Button>
+          </div>
         </div>
       </Modal>
+
+      {/* Scanner para linha especifica */}
+      {scanningRowIndex !== null && (
+        <BarcodeScanner
+          title={`Escanear produto — linha ${scanningRowIndex + 1}`}
+          onDetected={(code) => handleBarcodeDetected(code, scanningRowIndex)}
+          onClose={() => setScanningRowIndex(null)}
+        />
+      )}
     </div>
   );
 }
