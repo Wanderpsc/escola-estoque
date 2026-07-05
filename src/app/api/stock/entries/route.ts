@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { checkLicense } from "@/lib/license";
 import { z } from "zod";
 
 const entryItemSchema = z.object({
@@ -53,6 +54,14 @@ export async function POST(req: NextRequest) {
   if (!session) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
 
   const userId = (session.user as any).id;
+  const schoolId = (session.user as any).schoolId;
+
+  // Verificar licença (exceto SUPER_ADMIN)
+  if ((session.user as any).role !== "SUPER_ADMIN" && schoolId) {
+    const licenseError = await checkLicense(schoolId);
+    if (licenseError) return licenseError;
+  }
+
   const body = await req.json();
   const parsed = entrySchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });

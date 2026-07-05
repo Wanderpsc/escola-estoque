@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { checkLicense } from "@/lib/license";
 import { z } from "zod";
 
 const supplierSchema = z.object({
@@ -44,6 +45,9 @@ export async function POST(req: NextRequest) {
 
   const schoolId = (session.user as any).schoolId;
   if (!schoolId) return NextResponse.json({ error: "Escola não definida" }, { status: 400 });
+
+  const licenseError = await checkLicense(schoolId);
+  if (licenseError) return licenseError;
 
   const body = await req.json();
   const parsed = supplierSchema.safeParse(body);

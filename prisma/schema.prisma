@@ -37,6 +37,7 @@ model School {
   suppliers Supplier[]
   programs  Program[]
   products  Product[]
+  license   License?
 }
 
 model User {
@@ -233,4 +234,22 @@ model NcmCode {
   code        String  @unique
   description String
   category    String?
+}
+
+// ─────────────────────────────────────────────
+// Licenças de uso por escola
+// ─────────────────────────────────────────────
+
+model License {
+  id        String   @id @default(cuid())
+  schoolId  String   @unique
+  school    School   @relation(fields: [schoolId], references: [id])
+  plan      String   @default("BASICO") // BASICO | PROFISSIONAL | PREMIUM
+  startDate DateTime @default(now())
+  expiresAt DateTime
+  active    Boolean  @default(true)
+  notes     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

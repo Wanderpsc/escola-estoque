@@ -24,12 +24,21 @@ import {
   Wrench,
   BookOpen,
   Bell,
+  KeyRound,
 } from "lucide-react";
 
-const navigation = [
+// Navegação do SUPER_ADMIN (dono do sistema)
+const adminNavigation = [
+  { name: "Painel do Sistema", href: "/dashboard", icon: LayoutDashboard },
+  { name: "Escolas", href: "/dashboard/schools", icon: School },
+  { name: "Licenças", href: "/dashboard/licenses", icon: KeyRound },
+  { name: "Usuários", href: "/dashboard/users", icon: Users },
+];
+
+// Navegação das escolas (diretores e equipe)
+const schoolNavigation = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { name: "Escolas", href: "/dashboard/schools", icon: School, role: ["SUPER_ADMIN"] },
-  { name: "Usuários", href: "/dashboard/users", icon: Users, role: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
+  { name: "Usuários", href: "/dashboard/users", icon: Users, role: ["SCHOOL_ADMIN"] },
   { name: "Fornecedores", href: "/dashboard/suppliers", icon: Truck },
   { name: "Produtos (NCM)", href: "/dashboard/products", icon: Package },
   {
@@ -52,7 +61,6 @@ const navigation = [
   },
   { name: "Financeiro", href: "/dashboard/financial", icon: DollarSign },
   { name: "Relatórios", href: "/dashboard/reports", icon: BarChart3 },
-  { name: "Configurações", href: "/dashboard/settings", icon: Settings, role: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -62,6 +70,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [openGroups, setOpenGroups] = useState<string[]>(["Programas", "Estoque"]);
 
   const userRole = (session?.user as any)?.role ?? "USER";
+  const isSuperAdmin = userRole === "SUPER_ADMIN";
 
   const toggleGroup = (name: string) => {
     setOpenGroups((prev) =>
@@ -69,32 +78,35 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     );
   };
 
-  const filteredNav = navigation.filter(
-    (item) => !item.role || item.role.includes(userRole)
+  // Selecionar navegação baseada no perfil
+  const baseNav = isSuperAdmin ? adminNavigation : schoolNavigation;
+  const filteredNav = baseNav.filter(
+    (item: any) => !item.role || item.role.includes(userRole)
   );
 
-  const NavItem = ({ item }: { item: typeof navigation[0] }) => {
-    if (item.children) {
-      const isOpen = openGroups.includes(item.name);
-      const isActive = item.children.some((c) => pathname === c.href);
+  const NavItem = ({ item }: { item: (typeof adminNavigation)[0] | (typeof schoolNavigation)[0] }) => {
+    if ((item as any).children) {
+      const groupItem = item as typeof schoolNavigation[5];
+      const isOpen = openGroups.includes(groupItem.name);
+      const isActive = groupItem.children!.some((c) => pathname === c.href);
       return (
         <div>
           <button
-            onClick={() => toggleGroup(item.name)}
+            onClick={() => toggleGroup(groupItem.name)}
             className={cn(
               "w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-colors",
               isActive ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-100"
             )}
           >
             <span className="flex items-center gap-3">
-              <item.icon className="w-5 h-5" />
-              {item.name}
+              <groupItem.icon className="w-5 h-5" />
+              {groupItem.name}
             </span>
             <ChevronDown className={cn("w-4 h-4 transition-transform", isOpen && "rotate-180")} />
           </button>
           {isOpen && (
             <div className="ml-4 mt-1 space-y-1 border-l-2 border-slate-100 pl-3">
-              {item.children.map((child) => (
+              {groupItem.children!.map((child) => (
                 <Link
                   key={child.href}
                   href={child.href}
@@ -143,7 +155,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div>
           <p className="font-bold text-slate-800 text-sm leading-none">EscolaEstoque</p>
           <p className="text-xs text-slate-500 mt-0.5 truncate max-w-[140px]">
-            {(session?.user as any)?.schoolName ?? "Sistema"}
+            {isSuperAdmin ? "Gestão do Sistema" : ((session?.user as any)?.schoolName ?? "Escola")}
           </p>
         </div>
       </div>
