@@ -7,9 +7,10 @@ import { z } from "zod";
 const updateSchema = z.object({
   name: z.string().min(3).optional(),
   phone: z.string().optional(),
-  role: z.enum(["SUPER_ADMIN", "SCHOOL_ADMIN", "MANAGER", "ACCOUNTANT", "NUTRITIONIST", "USER"]).optional(),
+  role: z.enum(["SUPER_ADMIN", "SCHOOL_ADMIN", "MANAGER", "ACCOUNTANT", "NUTRITIONIST", "USER", "SUPPLIER"]).optional(),
   active: z.boolean().optional(),
   password: z.string().min(6).optional(),
+  supplierId: z.string().optional().nullable(),
 });
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

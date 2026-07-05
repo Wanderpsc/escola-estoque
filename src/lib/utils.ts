@@ -50,6 +50,7 @@ export const ROLE_LABELS = {
   ACCOUNTANT: "Contador",
   NUTRITIONIST: "Nutricionista",
   USER: "Usuário",
+  SUPPLIER: "Fornecedor",
 } as const;
 
 export const EXIT_REASONS = {

@@ -33,11 +33,13 @@ model School {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users     User[]
-  suppliers Supplier[]
-  programs  Program[]
-  products  Product[]
-  license   License?
+  users            User[]
+  suppliers        Supplier[]
+  programs         Program[]
+  products         Product[]
+  license          License?
+  stockAdjustments StockAdjustment[]
+  deliveryOrders   DeliveryOrder[]
 }
 
 model User {
@@ -48,16 +50,21 @@ model User {
   cpf      String?
   phone    String?
   role     String  @default("USER")
-  // SUPER_ADMIN | SCHOOL_ADMIN | MANAGER | ACCOUNTANT | NUTRITIONIST | USER
-  schoolId String?
-  school   School? @relation(fields: [schoolId], references: [id])
+  // SUPER_ADMIN | SCHOOL_ADMIN | MANAGER | ACCOUNTANT | NUTRITIONIST | USER | SUPPLIER
+  schoolId    String?
+  school      School?   @relation(fields: [schoolId], references: [id])
+  supplierId  String?
+  supplierLink Supplier? @relation("SupplierUsers", fields: [supplierId], references: [id])
   active   Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  stockEntries StockEntry[]
-  stockExits   StockExit[]
+  stockEntries        StockEntry[]
+  stockExits          StockExit[]
+  stockAdjustments    StockAdjustment[]
+  deliveriesCreated   DeliveryOrder[] @relation("DeliveryCreatedBy")
+  deliveriesConfirmed DeliveryOrder[] @relation("DeliveryConfirmedBy")
 }
 
 model Supplier {
@@ -85,7 +92,9 @@ model Supplier {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  entries StockEntry[]
+  entries        StockEntry[]
+  supplierUsers  User[]          @relation("SupplierUsers")
+  deliveryOrders DeliveryOrder[]
 }
 
 // ─────────────────────────────────────────────
@@ -109,6 +118,7 @@ model Program {
   stockEntries    StockEntry[]
   stockExits      StockExit[]
   budgetMovements BudgetMovement[]
+  deliveryOrders  DeliveryOrder[]
 }
 
 // ─────────────────────────────────────────────
@@ -131,8 +141,10 @@ model Product {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  entryItems EntryItem[]
-  exitItems  ExitItem[]
+  entryItems         EntryItem[]
+  exitItems          ExitItem[]
+  adjustments        StockAdjustment[]
+  deliveryOrderItems DeliveryOrderItem[]
 }
 
 // ─────────────────────────────────────────────
@@ -252,4 +264,70 @@ model License {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// Ajuste Manual de Saldo Anterior
+// Usado quando a escola inicia o sistema com
+// o ano letivo em andamento (repasses anteriores)
+// ─────────────────────────────────────────────
+
+model StockAdjustment {
+  id          String   @id @default(cuid())
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id])
+  schoolId    String
+  school      School   @relation(fields: [schoolId], references: [id])
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  quantity    Float    // positivo = crédito anterior; negativo = débito anterior
+  unitPrice   Float    @default(0)
+  description String?
+  date        DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// Ordens de Entrega — Fornecedor registra;
+// Diretor confirma; gera StockEntry + BudgetMovement
+// ─────────────────────────────────────────────
+
+model DeliveryOrder {
+  id            String    @id @default(cuid())
+  supplierId    String
+  schoolId      String
+  programId     String?
+  createdById   String
+  status        String    @default("PENDING") // PENDING | CONFIRMED | PARTIAL | CANCELLED
+  deliveryDate  DateTime
+  notes         String?
+  confirmedById String?
+  confirmedAt   DateTime?
+
+  supplier    Supplier  @relation(fields: [supplierId], references: [id])
+  school      School    @relation(fields: [schoolId], references: [id])
+  program     Program?  @relation(fields: [programId], references: [id])
+  createdBy   User      @relation("DeliveryCreatedBy", fields: [createdById], references: [id])
+  confirmedBy User?     @relation("DeliveryConfirmedBy", fields: [confirmedById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items DeliveryOrderItem[]
+}
+
+model DeliveryOrderItem {
+  id                String        @id @default(cuid())
+  orderId           String
+  order             DeliveryOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId         String
+  product           Product       @relation(fields: [productId], references: [id])
+  quantityOrdered   Float
+  quantityDelivered Float?        // preenchido pelo diretor ao confirmar
+  unitPrice         Float
+  totalPrice        Float
+
+  createdAt DateTime @default(now())
 }

@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 
-const ALLOWED_ROLES = ["SUPER_ADMIN", "SCHOOL_ADMIN", "MANAGER", "ACCOUNTANT", "NUTRITIONIST", "USER"];
+const ALLOWED_ROLES = ["SUPER_ADMIN", "SCHOOL_ADMIN", "MANAGER", "ACCOUNTANT", "NUTRITIONIST", "USER", "SUPPLIER"];
 
 const userSchema = z.object({
   name: z.string().min(3),
@@ -12,8 +12,9 @@ const userSchema = z.object({
   password: z.string().min(6),
   cpf: z.string().optional(),
   phone: z.string().optional(),
-  role: z.enum(["SUPER_ADMIN", "SCHOOL_ADMIN", "MANAGER", "ACCOUNTANT", "NUTRITIONIST", "USER"]),
+  role: z.enum(["SUPER_ADMIN", "SCHOOL_ADMIN", "MANAGER", "ACCOUNTANT", "NUTRITIONIST", "USER", "SUPPLIER"]),
   schoolId: z.string().optional().nullable(),
+  supplierId: z.string().optional().nullable(),
 });
 
 export async function GET(req: NextRequest) {
@@ -72,7 +73,8 @@ export async function POST(req: NextRequest) {
       cpf: parsed.data.cpf,
       phone: parsed.data.phone,
       role: parsed.data.role,
-      schoolId,
+      schoolId: schoolId ?? null,
+      supplierId: parsed.data.supplierId ?? null,
     },
     select: { id: true, name: true, email: true, role: true, active: true, createdAt: true },
   });

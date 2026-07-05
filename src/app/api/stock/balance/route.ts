@@ -20,6 +20,7 @@ export async function GET(req: NextRequest) {
       program: { select: { name: true, type: true } },
       entryItems: { select: { quantity: true, unitPrice: true } },
       exitItems: { select: { quantity: true, unitPrice: true } },
+      adjustments: { select: { quantity: true, unitPrice: true } },
     },
     orderBy: { name: "asc" },
   });
@@ -27,10 +28,14 @@ export async function GET(req: NextRequest) {
   const balance = products.map((p) => {
     const totalIn = p.entryItems.reduce((s, i) => s + i.quantity, 0);
     const totalOut = p.exitItems.reduce((s, i) => s + i.quantity, 0);
+    const totalAdjusted = p.adjustments.reduce((s, a) => s + a.quantity, 0);
     const avgPrice = totalIn > 0
       ? p.entryItems.reduce((s, i) => s + i.quantity * i.unitPrice, 0) / totalIn
-      : 0;
-    const balanceQty = totalIn - totalOut;
+      : totalAdjusted > 0
+        ? p.adjustments.filter((a) => a.quantity > 0).reduce((s, a) => s + a.quantity * a.unitPrice, 0) /
+          Math.max(p.adjustments.filter((a) => a.quantity > 0).reduce((s, a) => s + a.quantity, 0), 1)
+        : 0;
+    const balanceQty = totalIn - totalOut + totalAdjusted;
     return {
       id: p.id,
       name: p.name,
@@ -40,6 +45,7 @@ export async function GET(req: NextRequest) {
       program: p.program,
       totalIn,
       totalOut,
+      totalAdjusted,
       balance: balanceQty,
       avgPrice,
       totalValue: balanceQty * avgPrice,

@@ -25,6 +25,7 @@ import {
   BookOpen,
   Bell,
   KeyRound,
+  ClipboardList,
 } from "lucide-react";
 
 // Navegação do SUPER_ADMIN (dono do sistema)
@@ -59,8 +60,14 @@ const schoolNavigation = [
       { name: "Saldo Atual", href: "/dashboard/stock/balance", icon: Package },
     ],
   },
+  { name: "Entregas", href: "/dashboard/deliveries", icon: ClipboardList },
   { name: "Financeiro", href: "/dashboard/financial", icon: DollarSign },
   { name: "Relatórios", href: "/dashboard/reports", icon: BarChart3 },
+];
+
+// Navegação do Fornecedor (acesso limitado)
+const supplierNavigation = [
+  { name: "Minhas Entregas", href: "/dashboard/deliveries", icon: ClipboardList },
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -71,6 +78,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const userRole = (session?.user as any)?.role ?? "USER";
   const isSuperAdmin = userRole === "SUPER_ADMIN";
+  const isSupplier = userRole === "SUPPLIER";
+
+  const activeNav = isSuperAdmin
+    ? adminNavigation
+    : isSupplier
+    ? supplierNavigation
+    : schoolNavigation;
 
   const toggleGroup = (name: string) => {
     setOpenGroups((prev) =>
@@ -79,8 +93,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   };
 
   // Selecionar navegação baseada no perfil
-  const baseNav = isSuperAdmin ? adminNavigation : schoolNavigation;
-  const filteredNav = baseNav.filter(
+  const filteredNav = activeNav.filter(
     (item: any) => !item.role || item.role.includes(userRole)
   );
 

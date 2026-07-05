@@ -16,7 +16,7 @@ interface User {
   school?: { name: string };
 }
 
-const defaultForm = { name: "", email: "", password: "", cpf: "", phone: "", role: "USER", schoolId: "" };
+const defaultForm = { name: "", email: "", password: "", cpf: "", phone: "", role: "USER", schoolId: "", supplierId: "" };
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
@@ -26,12 +26,18 @@ export default function UsersPage() {
   const [form, setForm] = useState(defaultForm);
   const [saving, setSaving] = useState(false);
   const [schools, setSchools] = useState<Array<{ id: string; name: string }>>([]);
+  const [suppliers, setSuppliers] = useState<Array<{ id: string; name: string }>>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [uRes, sRes] = await Promise.all([fetch("/api/users"), fetch("/api/schools")]);
+    const [uRes, sRes, supRes] = await Promise.all([
+      fetch("/api/users"),
+      fetch("/api/schools"),
+      fetch("/api/suppliers"),
+    ]);
     if (uRes.ok) setUsers(await uRes.json());
     if (sRes.ok) setSchools(await sRes.json());
+    if (supRes.ok) setSuppliers(await supRes.json());
     setLoading(false);
   }, []);
 
@@ -39,7 +45,7 @@ export default function UsersPage() {
 
   function openAdd() { setForm(defaultForm); setSelected(null); setModal("add"); }
   function openEdit(u: User) {
-    setForm({ name: u.name, email: u.email, password: "", cpf: u.cpf ?? "", phone: u.phone ?? "", role: u.role, schoolId: "" });
+    setForm({ name: u.name, email: u.email, password: "", cpf: u.cpf ?? "", phone: u.phone ?? "", role: u.role, schoolId: "", supplierId: "" });
     setSelected(u); setModal("edit");
   }
   function openDelete(u: User) { setSelected(u); setModal("delete"); }
@@ -50,8 +56,10 @@ export default function UsersPage() {
     try {
       const url = selected ? `/api/users/${selected.id}` : "/api/users";
       const method = selected ? "PATCH" : "POST";
-      const body = { ...form };
-      if (selected && !body.password) delete (body as any).password;
+      const body: any = { ...form };
+      if (selected && !body.password) delete body.password;
+      if (!body.supplierId) body.supplierId = null;
+      if (!body.schoolId) body.schoolId = null;
       const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? "Erro ao salvar usuário"); return; }
@@ -78,7 +86,7 @@ export default function UsersPage() {
 
   const roleColorMap: Record<string, any> = {
     SUPER_ADMIN: "red", SCHOOL_ADMIN: "purple", MANAGER: "blue",
-    ACCOUNTANT: "orange", NUTRITIONIST: "green", USER: "slate",
+    ACCOUNTANT: "orange", NUTRITIONIST: "green", USER: "slate", SUPPLIER: "yellow",
   };
 
   return (
@@ -148,6 +156,14 @@ export default function UsersPage() {
             <Input label="Telefone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
           </div>
           <Select label="Perfil de acesso *" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} options={ROLES} />
+          {form.role === "SUPPLIER" && suppliers.length > 0 && (
+            <Select
+              label="Fornecedor vinculado *"
+              value={form.supplierId}
+              onChange={(e) => setForm({ ...form, supplierId: e.target.value })}
+              options={[{ value: "", label: "— Selecione o fornecedor —" }, ...suppliers.map((s) => ({ value: s.id, label: s.name }))]}
+            />
+          )}
           {schools.length > 0 && (
             <Select label="Escola" value={form.schoolId} onChange={(e) => setForm({ ...form, schoolId: e.target.value })}
               options={[{ value: "", label: "— Selecione —" }, ...schools.map((s) => ({ value: s.id, label: s.name }))]} />

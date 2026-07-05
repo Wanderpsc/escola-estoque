@@ -41,6 +41,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             role: user.role,
             schoolId: user.schoolId,
             schoolName: user.school?.name ?? null,
+            supplierId: user.supplierId ?? null,
           };
         } catch (err) {
           console.error("[authorize] ERROR:", err);
@@ -56,6 +57,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.role = (user as any).role as string;
         token.schoolId = (user as any).schoolId as string | null;
         token.schoolName = (user as any).schoolName as string | null;
+        token.supplierId = (user as any).supplierId as string | null;
       }
       return token;
     },
@@ -65,6 +67,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         (session.user as any).role = token.role as string;
         (session.user as any).schoolId = token.schoolId as string | null;
         (session.user as any).schoolName = token.schoolName as string | null;
+        (session.user as any).supplierId = token.supplierId as string | null;
       }
       return session;
     },
