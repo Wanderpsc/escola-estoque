@@ -18,6 +18,7 @@ export default function LoginPage() {
         email: form.email,
         password: form.password,
         redirect: false,
+        callbackUrl: "/dashboard",
       });
       if (result?.error) {
         toast.error("E-mail ou senha inválidos.");
