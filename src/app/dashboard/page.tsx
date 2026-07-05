@@ -33,7 +33,7 @@ export default async function DashboardPage() {
       include: { program: true, items: true },
     }),
     db.product.findMany({ where: { ...schoolFilter, active: true }, include: { entryItems: true, exitItems: true } }),
-    db.supplier.count({ where: schoolFilter }),
+    db.supplier.count({ where: { ...schoolFilter, active: true } }),
   ]);
 
   const alerts = products.filter((p) => {

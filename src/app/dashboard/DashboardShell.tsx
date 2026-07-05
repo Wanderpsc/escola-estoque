@@ -200,6 +200,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           Sair
         </button>
       </div>
+
+      {/* Copyright */}
+      <div className="px-4 py-3 border-t border-slate-100">
+        <p className="text-[10px] text-slate-400 text-center leading-snug">
+          © {new Date().getFullYear()} EscolaEstoque
+          <br />
+          Todos os direitos reservados.
+          <br />
+          Desenvolvido por Wander Pires Silva Coelho
+        </p>
+      </div>
     </aside>
   );
 
