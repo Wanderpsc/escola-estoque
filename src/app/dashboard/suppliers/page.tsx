@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
-import { Plus, Pencil, Truck, Phone, Mail, MapPin } from "lucide-react";
+import { Plus, Pencil, Truck, Phone, Mail, MapPin, Trash2 } from "lucide-react";
 import { PageHeader, Button, Badge, Modal, Input, EmptyState } from "@/components/ui";
 import { formatCNPJ } from "@/lib/utils";
+import PasswordConfirmModal from "@/components/PasswordConfirmModal";
 
 interface Supplier {
   id: string; name: string; cnpj: string; city: string; state: string;
@@ -26,6 +27,7 @@ export default function SuppliersPage() {
   const [form, setForm] = useState(defaultForm);
   const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState<"geral" | "banco">("geral");
+  const [pendingAction, setPendingAction] = useState<{ label: string; fn: () => void } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -38,6 +40,17 @@ export default function SuppliersPage() {
 
   function openAdd() { setForm(defaultForm); setSelected(null); setModal(true); setTab("geral"); }
   function openEdit(s: Supplier) { setForm({ ...defaultForm, ...s }); setSelected(s); setModal(true); setTab("geral"); }
+
+  function requestDelete(s: Supplier) {
+    setPendingAction({
+      label: `excluir o fornecedor "${s.name}"`,
+      fn: async () => {
+        const res = await fetch(`/api/suppliers/${s.id}`, { method: "DELETE" });
+        if (res.ok) { toast.success("Fornecedor excluido!"); load(); }
+        else { const d = await res.json(); toast.error(d.error ?? "Erro ao excluir"); }
+      },
+    });
+  }
 
   async function handleSave() {
     setSaving(true);
@@ -70,9 +83,14 @@ export default function SuppliersPage() {
                 <div className="w-10 h-10 bg-orange-100 rounded-xl flex items-center justify-center">
                   <Truck className="w-5 h-5 text-orange-600" />
                 </div>
-                <button onClick={() => openEdit(s)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100">
-                  <Pencil className="w-4 h-4" />
-                </button>
+                <div className="flex gap-1">
+                  <button onClick={() => openEdit(s)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100" title="Editar">
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => requestDelete(s)} className="p-1.5 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500" title="Excluir (requer senha)">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
               <h3 className="font-semibold text-slate-800 mb-1">{s.name}</h3>
               <p className="text-xs text-slate-500 mb-3">CNPJ: {formatCNPJ(s.cnpj)}</p>
@@ -128,6 +146,14 @@ export default function SuppliersPage() {
           <Button onClick={handleSave} loading={saving}>Salvar</Button>
         </div>
       </Modal>
+
+      {pendingAction && (
+        <PasswordConfirmModal
+          actionLabel={pendingAction.label}
+          onConfirmed={() => { pendingAction.fn(); setPendingAction(null); }}
+          onClose={() => setPendingAction(null)}
+        />
+      )}
     </div>
   );
 }
