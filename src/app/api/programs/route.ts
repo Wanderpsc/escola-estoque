@@ -5,9 +5,10 @@ import { z } from "zod";
 
 const programSchema = z.object({
   name: z.string().min(2),
-  type: z.enum(["MERENDA", "MANUTENCAO", "PDDE"]),
+  type: z.string().min(2),   // livre: MERENDA | MANUTENCAO | PDDE | qualquer valor personalizado
   description: z.string().optional(),
   budget: z.number().min(0).default(0),
+  parentId: z.string().optional().nullable(),
 });
 
 export async function GET(req: NextRequest) {
@@ -24,7 +25,14 @@ export async function GET(req: NextRequest) {
 
   const programs = await db.program.findMany({
     where: { ...where, active: true },
-    include: { _count: { select: { products: true, stockEntries: true } } },
+    include: {
+      _count: { select: { products: true, stockEntries: true } },
+      children: {
+        where: { active: true },
+        include: { _count: { select: { products: true, stockEntries: true } } },
+        orderBy: { name: "asc" },
+      },
+    },
     orderBy: { name: "asc" },
   });
   return NextResponse.json(programs);
@@ -48,7 +56,7 @@ export async function POST(req: NextRequest) {
 
   const targetSchoolId = body.schoolId ?? schoolId;
   const program = await db.program.create({
-    data: { ...parsed.data, schoolId: targetSchoolId },
+    data: { ...parsed.data, schoolId: targetSchoolId, parentId: parsed.data.parentId ?? null },
   });
   return NextResponse.json(program, { status: 201 });
 }

@@ -6,6 +6,7 @@ import { z } from "zod";
 const movementSchema = z.object({
   programId: z.string(),
   type: z.enum(["CREDIT", "DEBIT"]),
+  category: z.enum(["NORMAL", "SALDO_ANTERIOR", "DIVIDA"]).default("NORMAL"),
   amount: z.number().positive(),
   description: z.string().min(2),
   reference: z.string().optional(),

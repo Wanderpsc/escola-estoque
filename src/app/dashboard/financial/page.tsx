@@ -8,7 +8,7 @@ import { formatCurrency, formatDate, PROGRAM_TYPES } from "@/lib/utils";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 interface Program { id: string; name: string; type: string; budget: number }
-interface Movement { id: string; type: "CREDIT" | "DEBIT"; amount: number; description: string; reference?: string; date: string; program: { name: string; type: string } }
+interface Movement { id: string; type: "CREDIT" | "DEBIT"; category: string; amount: number; description: string; reference?: string; date: string; program: { name: string; type: string } }
 
 export default function FinancialPage() {
   const [programs, setPrograms] = useState<Program[]>([]);
@@ -17,7 +17,7 @@ export default function FinancialPage() {
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<"budget" | "movement" | null>(null);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ programId: "", budget: 0, type: "CREDIT", amount: 0, description: "", reference: "", date: new Date().toISOString().split("T")[0] });
+  const [form, setForm] = useState({ programId: "", budget: 0, type: "CREDIT", category: "NORMAL", amount: 0, description: "", reference: "", date: new Date().toISOString().split("T")[0] });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -132,6 +132,7 @@ export default function FinancialPage() {
                     <Th>Data</Th>
                     <Th>Programa</Th>
                     <Th>Tipo</Th>
+                    <Th>Categoria</Th>
                     <Th>Descrição</Th>
                     <Th>Referência</Th>
                     <Th>Valor</Th>
@@ -153,6 +154,11 @@ export default function FinancialPage() {
                           ? <span className="flex items-center gap-1 text-green-600 font-medium"><TrendingUp className="w-4 h-4" />Crédito</span>
                           : <span className="flex items-center gap-1 text-red-600 font-medium"><TrendingDown className="w-4 h-4" />Débito</span>
                         }
+                      </Td>
+                      <Td>
+                        {m.category === "SALDO_ANTERIOR" && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">Saldo Anterior</span>}
+                        {m.category === "DIVIDA" && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-700">Divida Anterior</span>}
+                        {(!m.category || m.category === "NORMAL") && <span className="text-slate-400 text-xs">Normal</span>}
                       </Td>
                       <Td>{m.description}</Td>
                       <Td className="text-slate-400 text-xs">{m.reference ?? "—"}</Td>
@@ -187,6 +193,37 @@ export default function FinancialPage() {
       <Modal open={modal === "movement"} onClose={() => setModal(null)} title="Nova Movimentação Financeira">
         <div className="space-y-4">
           <Select label="Programa *" value={form.programId} onChange={(e) => setForm({ ...form, programId: e.target.value })} options={[{ value: "", label: "— Selecione —" }, ...programs.map((p) => ({ value: p.id, label: p.name }))]} />
+
+          {/* Categoria da movimentação */}
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Categoria *</label>
+            <div className="grid grid-cols-3 gap-2">
+              {([
+                { value: "NORMAL",         label: "Normal",          desc: "Repasse ou gasto regular" },
+                { value: "SALDO_ANTERIOR", label: "Saldo Anterior",   desc: "Saldo de ano/período anterior" },
+                { value: "DIVIDA",         label: "Divida Anterior",  desc: "Divida ou passivo de período anterior" },
+              ] as const).map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setForm({ ...form, category: opt.value })}
+                  className={`text-left px-3 py-2.5 rounded-xl border-2 transition-colors ${
+                    form.category === opt.value
+                      ? opt.value === "DIVIDA"
+                        ? "border-orange-400 bg-orange-50"
+                        : opt.value === "SALDO_ANTERIOR"
+                        ? "border-blue-400 bg-blue-50"
+                        : "border-slate-400 bg-slate-50"
+                      : "border-slate-200 hover:border-slate-300"
+                  }`}
+                >
+                  <p className="text-xs font-semibold text-slate-700">{opt.label}</p>
+                  <p className="text-xs text-slate-400 mt-0.5 leading-tight">{opt.desc}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
             <Select label="Tipo *" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} options={[{ value: "CREDIT", label: "Crédito (entrada)" }, { value: "DEBIT", label: "Débito (saída)" }]} />
             <Input label="Valor (R$) *" type="number" min={0} step={0.01} value={form.amount} onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })} />

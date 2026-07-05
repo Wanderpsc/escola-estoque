@@ -46,6 +46,7 @@ const schoolNavigation = [
     name: "Programas",
     icon: ShoppingCart,
     children: [
+      { name: "Todos os Programas", href: "/dashboard/programs", icon: LayoutDashboard },
       { name: "Merenda Escolar", href: "/dashboard/programs/merenda", icon: Utensils },
       { name: "Manutenção", href: "/dashboard/programs/manutencao", icon: Wrench },
       { name: "PDDE", href: "/dashboard/programs/pdde", icon: BookOpen },
