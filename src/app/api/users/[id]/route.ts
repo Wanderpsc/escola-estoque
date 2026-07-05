@@ -39,10 +39,23 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
 export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
-  if (!session || (session.user as any).role !== "SUPER_ADMIN") {
+  const sessionRole = (session?.user as any)?.role;
+  const sessionSchoolId = (session?.user as any)?.schoolId;
+
+  if (!session || !["SUPER_ADMIN", "SCHOOL_ADMIN"].includes(sessionRole)) {
     return NextResponse.json({ error: "Não autorizado" }, { status: 403 });
   }
+
   const { id } = await params;
+
+  // SCHOOL_ADMIN só pode desativar usuários da própria escola
+  if (sessionRole === "SCHOOL_ADMIN") {
+    const target = await db.user.findUnique({ where: { id }, select: { schoolId: true } });
+    if (!target || target.schoolId !== sessionSchoolId) {
+      return NextResponse.json({ error: "Sem permissão para excluir este usuário" }, { status: 403 });
+    }
+  }
+
   await db.user.update({ where: { id }, data: { active: false } });
   return NextResponse.json({ ok: true });
 }
