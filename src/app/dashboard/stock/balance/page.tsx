@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Search, SlidersHorizontal, X, Plus, Trash2 } from "lucide-react";
+import { Search, SlidersHorizontal, X, Plus, Trash2, RefreshCw } from "lucide-react";
 import { PageHeader, Badge, Table, Th, Td } from "@/components/ui";
 import { formatCurrency, PROGRAM_TYPES } from "@/lib/utils";
+import { usePolling } from "@/lib/usePolling";
 import { toast } from "sonner";
 
 interface Balance {
@@ -232,18 +233,22 @@ function AdjustmentModal({
 export default function StockBalancePage() {
   const [items, setItems] = useState<Balance[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"ALL" | "OK" | "LOW" | "ZERO">("ALL");
   const [selectedProduct, setSelectedProduct] = useState<Balance | null>(null);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    const isFirst = !lastUpdated;
+    if (isFirst) setLoading(true); else setRefreshing(true);
     const res = await fetch("/api/stock/balance");
-    if (res.ok) setItems(await res.json());
-    setLoading(false);
-  }, []);
+    if (res.ok) { setItems(await res.json()); setLastUpdated(new Date()); }
+    if (isFirst) setLoading(false); else setRefreshing(false);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { load(); }, [load]);
+  // Refresh inicial + a cada 30 segundos
+  usePolling(load, 30_000);
 
   const filtered = items.filter((i) =>
     (filter === "ALL" || i.status === filter) &&
@@ -265,9 +270,18 @@ export default function StockBalancePage() {
   return (
     <div>
       <PageHeader title="Saldo de Estoque" description="Posicao atual de todos os produtos">
-        <div className="text-right">
-          <p className="text-xs text-slate-500">Valor total em estoque</p>
-          <p className="text-xl font-bold text-blue-700">{formatCurrency(totalValue)}</p>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1.5 text-xs text-slate-400">
+            <span className={`w-2 h-2 rounded-full ${refreshing ? "bg-yellow-400 animate-pulse" : "bg-green-400"}`} />
+            {lastUpdated ? <span>Atualizado {lastUpdated.toLocaleTimeString("pt-BR")}</span> : <span>Carregando...</span>}
+            <button onClick={load} disabled={refreshing} title="Atualizar agora" className="ml-1 p-1 rounded hover:bg-slate-100 disabled:opacity-40">
+              <RefreshCw className={`w-3 h-3 ${refreshing ? "animate-spin" : ""}`} />
+            </button>
+          </div>
+          <div className="text-right">
+            <p className="text-xs text-slate-500">Valor total em estoque</p>
+            <p className="text-xl font-bold text-blue-700">{formatCurrency(totalValue)}</p>
+          </div>
         </div>
       </PageHeader>
 

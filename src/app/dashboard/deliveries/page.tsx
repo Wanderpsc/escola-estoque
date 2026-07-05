@@ -1,10 +1,11 @@
 ﻿"use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useSession } from "next-auth/react";
-import { Plus, CheckCircle, XCircle, Clock, Truck, ChevronDown, ChevronUp, AlertTriangle } from "lucide-react";
+import { Plus, CheckCircle, XCircle, Clock, Truck, ChevronDown, ChevronUp, AlertTriangle, RefreshCw } from "lucide-react";
 import { PageHeader, Badge, Table, Th, Td, Button, Modal } from "@/components/ui";
 import { formatCurrency, PROGRAM_TYPES } from "@/lib/utils";
+import { usePolling } from "@/lib/usePolling";
 import { toast } from "sonner";
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
@@ -549,8 +550,11 @@ export default function DeliveriesPage() {
   const { data: session } = useSession();
   const [orders, setOrders] = useState<DeliveryOrder[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
+  const prevCountRef = useRef(0);
 
   const role = (session?.user as any)?.role ?? "";
   const isSupplier = role === "SUPPLIER";
@@ -558,15 +562,29 @@ export default function DeliveriesPage() {
   const supplierId = (session?.user as any)?.supplierId ?? "";
   const schoolId = (session?.user as any)?.schoolId ?? "";
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const fetchOrders = useCallback(async () => {
+    const isFirst = !lastUpdated;
+    if (isFirst) setLoading(true); else setRefreshing(true);
     const url = statusFilter !== "ALL" ? `/api/deliveries?status=${statusFilter}` : "/api/deliveries";
     const res = await fetch(url);
-    if (res.ok) setOrders(await res.json());
-    setLoading(false);
-  }, [statusFilter]);
+    if (res.ok) {
+      const data: DeliveryOrder[] = await res.json();
+      const newPending = data.filter((o) => o.status === "PENDING").length;
+      // Notifica se chegou nova entrega pendente
+      if (!isFirst && newPending > prevCountRef.current) {
+        toast.info(`Nova entrega registrada pelo fornecedor!`, { duration: 5000 });
+      }
+      prevCountRef.current = newPending;
+      setOrders(data);
+      setLastUpdated(new Date());
+    }
+    if (isFirst) setLoading(false); else setRefreshing(false);
+  }, [statusFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { load(); }, [load]);
+  // Refresh inicial + a cada 15 segundos
+  usePolling(fetchOrders, 15_000);
+
+  const load = fetchOrders; // alias para uso nos handlers
 
   const pending  = orders.filter((o) => o.status === "PENDING").length;
   const partial  = orders.filter((o) => o.status === "PARTIAL").length;
@@ -580,15 +598,33 @@ export default function DeliveriesPage() {
         title="Entregas de Mercadorias"
         description={isSupplier ? "Registre as mercadorias que serao entregues" : "Gerencie e confirme as entregas dos fornecedores"}
       >
-        {isSupplier && supplierId && (
-          <button
-            onClick={() => setShowNew(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg"
-          >
-            <Plus className="w-4 h-4" />
-            Registrar Entrega
-          </button>
-        )}
+        <div className="flex items-center gap-3">
+          {/* Indicador ao vivo */}
+          <div className="flex items-center gap-1.5 text-xs text-slate-400">
+            <span className={`w-2 h-2 rounded-full ${refreshing ? "bg-yellow-400 animate-pulse" : "bg-green-400"}`} />
+            {lastUpdated
+              ? <span>Atualizado {lastUpdated.toLocaleTimeString("pt-BR")}</span>
+              : <span>Carregando...</span>}
+            <button
+              onClick={load}
+              disabled={refreshing}
+              title="Atualizar agora"
+              className="ml-1 p-1 rounded hover:bg-slate-100 disabled:opacity-40"
+            >
+              <RefreshCw className={`w-3 h-3 ${refreshing ? "animate-spin" : ""}`} />
+            </button>
+          </div>
+
+          {isSupplier && supplierId && (
+            <button
+              onClick={() => setShowNew(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg"
+            >
+              <Plus className="w-4 h-4" />
+              Registrar Entrega
+            </button>
+          )}
+        </div>
       </PageHeader>
 
       {/* Alertas para escola */}
