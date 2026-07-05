@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
-import { Plus, Pencil, Building2, MapPin, Phone, Mail } from "lucide-react";
+import { Plus, Pencil, Trash2, Building2, MapPin, Phone, Mail } from "lucide-react";
 import { PageHeader, Button, Badge, Modal, Input, EmptyState, Table, Th, Td } from "@/components/ui";
 import { formatCNPJ } from "@/lib/utils";
 
@@ -21,7 +21,7 @@ const defaultForm = {
 export default function SchoolsPage() {
   const [schools, setSchools] = useState<School[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState<"add" | "edit" | null>(null);
+  const [modal, setModal] = useState<"add" | "edit" | "delete" | null>(null);
   const [selected, setSelected] = useState<School | null>(null);
   const [form, setForm] = useState(defaultForm);
   const [saving, setSaving] = useState(false);
@@ -37,6 +37,7 @@ export default function SchoolsPage() {
 
   function openAdd() { setForm(defaultForm); setSelected(null); setModal("add"); }
   function openEdit(s: School) { setForm({ ...s, ie: s.ie ?? "", complement: s.complement ?? "" }); setSelected(s); setModal("edit"); }
+  function openDelete(s: School) { setSelected(s); setModal("delete"); }
   function closeModal() { setModal(null); setSelected(null); }
 
   async function handleSave() {
@@ -48,6 +49,17 @@ export default function SchoolsPage() {
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? "Erro ao salvar escola"); return; }
       toast.success(selected ? "Escola atualizada!" : "Escola cadastrada!");
+      closeModal(); load();
+    } finally { setSaving(false); }
+  }
+
+  async function handleDelete() {
+    if (!selected) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/schools/${selected.id}`, { method: "DELETE" });
+      if (!res.ok) { const d = await res.json(); toast.error(d.error ?? "Erro ao excluir escola"); return; }
+      toast.success("Escola excluída!");
       closeModal(); load();
     } finally { setSaving(false); }
   }
@@ -72,8 +84,11 @@ export default function SchoolsPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <Badge color={s.active ? "green" : "red"}>{s.active ? "Ativa" : "Inativa"}</Badge>
-                  <button onClick={() => openEdit(s)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100">
+                  <button onClick={() => openEdit(s)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100" title="Editar">
                     <Pencil className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => openDelete(s)} className="p-1.5 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500" title="Excluir">
+                    <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
               </div>
@@ -92,7 +107,7 @@ export default function SchoolsPage() {
         </div>
       )}
 
-      <Modal open={!!modal} onClose={closeModal} title={selected ? "Editar Escola" : "Nova Escola"} size="lg">
+      <Modal open={!!modal && modal !== "delete"} onClose={closeModal} title={selected ? "Editar Escola" : "Nova Escola"} size="lg">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="sm:col-span-2"><Input label="Nome da Escola *" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Escola Estadual..." /></div>
           <Input label="CNPJ *" value={form.cnpj} onChange={(e) => setForm({ ...form, cnpj: e.target.value })} placeholder="00.000.000/0000-00" />
@@ -111,6 +126,17 @@ export default function SchoolsPage() {
         <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
           <Button variant="secondary" onClick={closeModal}>Cancelar</Button>
           <Button onClick={handleSave} loading={saving}>Salvar</Button>
+        </div>
+      </Modal>
+
+      <Modal open={modal === "delete"} onClose={closeModal} title="Excluir Escola" size="sm">
+        <p className="text-slate-600 mb-6">
+          Tem certeza que deseja excluir a escola <strong>{selected?.name}</strong>?<br />
+          <span className="text-red-500 text-sm">Esta ação não pode ser desfeita.</span>
+        </p>
+        <div className="flex justify-end gap-3">
+          <Button variant="secondary" onClick={closeModal}>Cancelar</Button>
+          <Button variant="danger" onClick={handleDelete} loading={saving}>Excluir</Button>
         </div>
       </Modal>
     </div>
