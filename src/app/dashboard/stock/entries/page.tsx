@@ -297,13 +297,13 @@ export default function StockEntriesPage() {
       </Modal>
 
       {scanningRowIndex !== null && (
-        <BarcodeScanner title={`Escanear produto — linha ${scanningRowIndex + 1}`} onDetected={(code) => handleBarcodeDetected(code, scanningRowIndex)} onClose={() => setScanningRowIndex(null)} />
+        <BarcodeScanner title={`Escanear produto � linha ${scanningRowIndex + 1}`} onDetected={(code) => handleBarcodeDetected(code, scanningRowIndex)} onClose={() => setScanningRowIndex(null)} />
       )}
 
       {pendingAction && (
         <PasswordConfirmModal
           actionLabel={pendingAction.label}
-          onConfirmed={() => { pendingAction.fn(); setPendingAction(null); }}
+          onConfirmed={async () => { if (pendingAction) { await pendingAction.fn(); } setPendingAction(null); }}
           onClose={() => setPendingAction(null)}
         />
       )}

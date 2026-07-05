@@ -63,11 +63,11 @@ export default function StockExitsPage() {
 
   async function handleSave() {
     if (!form.programId || !form.productId || !form.exitDate) {
-      toast.error("Preencha todos os campos obrigatórios (*)"); return;
+      toast.error("Preencha todos os campos obrigat�rios (*)"); return;
     }
     if (Number(form.quantity) <= 0) { toast.error("Quantidade deve ser maior que zero"); return; }
     if (selectedProduct && Number(form.quantity) > selectedProduct.balance) {
-      toast.error(`Saldo insuficiente. Disponível: ${selectedProduct.balance.toFixed(2)} ${selectedProduct.unit}`); return;
+      toast.error(`Saldo insuficiente. Dispon�vel: ${selectedProduct.balance.toFixed(2)} ${selectedProduct.unit}`); return;
     }
     setSaving(true);
     try {
@@ -219,11 +219,11 @@ export default function StockExitsPage() {
           <div className="grid grid-cols-2 gap-4">
             <Select label="Programa *" value={form.programId}
               onChange={(e) => setForm({ ...form, programId: e.target.value, productId: "", unitPrice: 0 })}
-              options={[{ value: "", label: "— Selecione o programa —" }, ...programs.map((p) => ({ value: p.id, label: p.name }))]} />
+              options={[{ value: "", label: "� Selecione o programa �" }, ...programs.map((p) => ({ value: p.id, label: p.name }))]} />
             <Select label="Produto *" value={form.productId}
               onChange={(e) => handleProductChange(e.target.value)}
               options={[
-                { value: "", label: form.programId ? "— Selecione o produto —" : "← Selecione o programa" },
+                { value: "", label: form.programId ? "� Selecione o produto �" : "? Selecione o programa" },
                 ...filteredBalance.map((p) => ({ value: p.id, label: `${p.name} (saldo: ${p.balance.toFixed(2)} ${p.unit})` })),
               ]} />
           </div>
@@ -299,7 +299,7 @@ export default function StockExitsPage() {
       {pendingAction && (
         <PasswordConfirmModal
           actionLabel={pendingAction.label}
-          onConfirmed={() => { pendingAction.fn(); setPendingAction(null); }}
+          onConfirmed={async () => { if (pendingAction) { await pendingAction.fn(); } setPendingAction(null); }}
           onClose={() => setPendingAction(null)}
         />
       )}

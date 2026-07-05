@@ -7,8 +7,8 @@ import { toast } from "sonner";
 interface Props {
   /** Texto descritivo da ação que será executada após confirmar */
   actionLabel: string;
-  /** Chamado quando a senha está correta */
-  onConfirmed: () => void;
+  /** Chamado quando a senha está correta. Pode ser async. */
+  onConfirmed: () => void | Promise<void>;
   /** Chamado quando o usuário cancela */
   onClose: () => void;
 }
@@ -35,7 +35,8 @@ export default function PasswordConfirmModal({ actionLabel, onConfirmed, onClose
         body: JSON.stringify({ password }),
       });
       if (res.ok) {
-        onConfirmed();
+        // Aguarda a acao assincrona antes de fechar
+        await Promise.resolve(onConfirmed());
       } else {
         const data = await res.json();
         setError(data.error ?? "Senha incorreta");

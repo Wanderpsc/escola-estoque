@@ -150,7 +150,7 @@ export default function SuppliersPage() {
       {pendingAction && (
         <PasswordConfirmModal
           actionLabel={pendingAction.label}
-          onConfirmed={() => { pendingAction.fn(); setPendingAction(null); }}
+          onConfirmed={async () => { if (pendingAction) { await pendingAction.fn(); } setPendingAction(null); }}
           onClose={() => setPendingAction(null)}
         />
       )}
