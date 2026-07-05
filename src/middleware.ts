@@ -8,8 +8,9 @@ export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const isAuthPage = pathname.startsWith("/login");
   const isApiAuth = pathname.startsWith("/api/auth");
+  const isApiDebug = pathname.startsWith("/api/debug");
 
-  if (isApiAuth) return NextResponse.next();
+  if (isApiAuth || isApiDebug) return NextResponse.next();
 
   if (!isLoggedIn && !isAuthPage) {
     return NextResponse.redirect(new URL("/login", req.nextUrl));
