@@ -7,6 +7,7 @@ import { PageHeader, Badge, Table, Th, Td, Button, Modal } from "@/components/ui
 import { formatCurrency, PROGRAM_TYPES } from "@/lib/utils";
 import { usePolling } from "@/lib/usePolling";
 import { toast } from "sonner";
+import PasswordConfirmModal from "@/components/PasswordConfirmModal";
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 interface Product { id: string; name: string; unit: string; ncmCode: string }
@@ -382,8 +383,8 @@ function ConfirmModal({
             <p className="text-lg font-bold text-blue-700">{formatCurrency(totalConfirmed)}</p>
           </div>
           <div className="flex gap-2">
-            <button onClick={handleCancel} disabled={saving} className="px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg border border-red-200 disabled:opacity-50">
-              Cancelar Entrega
+            <button onClick={onClose} disabled={saving} className="px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 rounded-lg border border-slate-200 disabled:opacity-50">
+              Fechar
             </button>
             <button onClick={handleConfirm} disabled={saving} className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg disabled:opacity-50">
               {saving ? "Confirmando..." : "Confirmar Recebimento"}
@@ -399,6 +400,18 @@ function ConfirmModal({
 function OrderCard({ order, canConfirm, onRefresh }: { order: DeliveryOrder; canConfirm: boolean; onRefresh: () => void }) {
   const [expanded, setExpanded] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [pendingAction, setPendingAction] = useState<{ label: string; fn: () => void } | null>(null);
+
+  function requestCancel() {
+    setPendingAction({
+      label: `cancelar a entrega de ${order.supplier.name}`,
+      fn: async () => {
+        const res = await fetch(`/api/deliveries/${order.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "CANCEL" }) });
+        if (res.ok) { toast.success("Entrega cancelada."); onRefresh(); }
+        else { toast.error("Erro ao cancelar."); }
+      },
+    });
+  }
 
   const totalOrdered = order.items.reduce((s, i) => s + i.totalPrice, 0);
   const totalDelivered = order.items.reduce((s, i) => {
@@ -432,13 +445,14 @@ function OrderCard({ order, canConfirm, onRefresh }: { order: DeliveryOrder; can
           <div className="flex items-center gap-2">
             <StatusIcon s={order.status} />
             {canConfirm && order.status === "PENDING" && (
-              <button
-                onClick={() => setShowConfirm(true)}
-                className="flex items-center gap-1 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-medium rounded-lg"
-              >
-                <CheckCircle className="w-3.5 h-3.5" />
-                Confirmar
-              </button>
+              <>
+                <button onClick={() => setShowConfirm(true)} className="flex items-center gap-1 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-medium rounded-lg">
+                  <CheckCircle className="w-3.5 h-3.5" />Confirmar
+                </button>
+                <button onClick={requestCancel} className="flex items-center gap-1 px-2 py-1.5 border border-red-200 text-red-600 hover:bg-red-50 text-xs font-medium rounded-lg" title="Cancelar entrega (requer senha)">
+                  <XCircle className="w-3.5 h-3.5" />Cancelar
+                </button>
+              </>
             )}
             <button onClick={() => setExpanded((e) => !e)} className="text-slate-400 hover:text-slate-700 p-1">
               {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -535,10 +549,14 @@ function OrderCard({ order, canConfirm, onRefresh }: { order: DeliveryOrder; can
       </div>
 
       {showConfirm && (
-        <ConfirmModal
-          order={order}
-          onClose={() => setShowConfirm(false)}
-          onSaved={onRefresh}
+        <ConfirmModal order={order} onClose={() => setShowConfirm(false)} onSaved={onRefresh} />
+      )}
+
+      {pendingAction && (
+        <PasswordConfirmModal
+          actionLabel={pendingAction.label}
+          onConfirmed={() => { pendingAction.fn(); setPendingAction(null); }}
+          onClose={() => setPendingAction(null)}
         />
       )}
     </>

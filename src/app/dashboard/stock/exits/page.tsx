@@ -2,14 +2,16 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
-import { Plus } from "lucide-react";
+import { Plus, Pencil, Trash2, ChevronDown, ChevronUp } from "lucide-react";
 import { PageHeader, Button, Badge, Modal, Input, Select, EmptyState, Table, Th, Td } from "@/components/ui";
 import { formatCurrency, formatDate, PROGRAM_TYPES, EXIT_REASONS } from "@/lib/utils";
+import PasswordConfirmModal from "@/components/PasswordConfirmModal";
 
+interface ExitItem { id: string; quantity: number; unitPrice: number; totalPrice: number; product: { name: string; unit: string } }
 interface Exit {
   id: string; exitDate: string; reason: string; observations?: string;
   program: { name: string; type: string }; user: { name: string };
-  items: Array<{ product: { name: string; unit: string }; quantity: number; unitPrice: number; totalPrice: number }>;
+  items: ExitItem[];
 }
 
 const EMPTY_FORM = {
@@ -23,6 +25,11 @@ export default function StockExitsPage() {
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [editExit, setEditExit] = useState<Exit | null>(null);
+  const [editMeta, setEditMeta] = useState({ exitDate: "", reason: "CONSUMO", observations: "" });
+  const [editItems, setEditItems] = useState<Array<{ id: string; quantity: string; unitPrice: string }>>([]);
+  const [pendingAction, setPendingAction] = useState<{ label: string; fn: () => void } | null>(null);
   const [programs, setPrograms] = useState<Array<{ id: string; name: string; type: string }>>([]);
   const [balance, setBalance] = useState<Array<{ id: string; name: string; unit: string; balance: number; avgPrice: number; programId?: string; program: { type: string } }>>([]);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -103,6 +110,45 @@ export default function StockExitsPage() {
     CONSUMO: "Consumo", VENCIMENTO: "Vencimento", DOACAO: "Doacao", PERDA: "Perda", OUTRO: "Outro",
   };
 
+  function toggleExpand(id: string) {
+    setExpandedIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+
+  function requestEdit(exit: Exit) {
+    setPendingAction({
+      label: `editar a saida de ${new Date(exit.exitDate).toLocaleDateString("pt-BR")}`,
+      fn: () => {
+        setEditExit(exit);
+        setEditMeta({ exitDate: exit.exitDate.split("T")[0], reason: exit.reason, observations: exit.observations ?? "" });
+        setEditItems(exit.items.map((i) => ({ id: i.id, quantity: String(i.quantity), unitPrice: String(i.unitPrice) })));
+      },
+    });
+  }
+
+  function requestDelete(exit: Exit) {
+    setPendingAction({
+      label: `excluir a saida de ${new Date(exit.exitDate).toLocaleDateString("pt-BR")}`,
+      fn: async () => {
+        const res = await fetch(`/api/stock/exits/${exit.id}`, { method: "DELETE" });
+        if (res.ok) { toast.success("Saida excluida! Saldo de estoque atualizado."); load(); }
+        else { const d = await res.json(); toast.error(d.error ?? "Erro ao excluir"); }
+      },
+    });
+  }
+
+  async function handleEditSave() {
+    if (!editExit) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/stock/exits/${editExit.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ exitDate: editMeta.exitDate, reason: editMeta.reason, observations: editMeta.observations, items: editItems.map((i) => ({ id: i.id, quantity: Number(i.quantity), unitPrice: Number(i.unitPrice) })) }),
+      });
+      if (!res.ok) { const d = await res.json(); toast.error(d.error ?? "Erro ao editar"); return; }
+      toast.success("Saida atualizada!"); setEditExit(null); load();
+    } finally { setSaving(false); }
+  }
+
   return (
     <div>
       <PageHeader title="Saidas de Estoque" description="Registre saidas e consumo de produtos por programa">
@@ -114,41 +160,57 @@ export default function StockExitsPage() {
       ) : flatItems.length === 0 ? (
         <EmptyState title="Nenhuma saida registrada" description="Registre a primeira saida de mercadoria." action={<Button onClick={() => setModal(true)}><Plus className="w-4 h-4" />Nova Saida</Button>} />
       ) : (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <Table>
-            <thead>
-              <tr>
-                <Th>Produto</Th>
-                <Th>Programa</Th>
-                <Th className="text-right">Qtd</Th>
-                <Th>Un.</Th>
-                <Th>Vl. Unit.</Th>
-                <Th>Vl. Total</Th>
-                <Th>Data</Th>
-                <Th>Motivo</Th>
-                <Th>Responsavel</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {flatItems.map((item, i) => (
-                <tr key={i} className="hover:bg-slate-50">
-                  <Td className="font-medium">{item.product}</Td>
-                  <Td>
-                    <Badge color={item.program.type === "MERENDA" ? "green" : item.program.type === "MANUTENCAO" ? "blue" : "purple"}>
-                      {PROGRAM_TYPES[item.program.type as keyof typeof PROGRAM_TYPES]?.label ?? item.program.type}
-                    </Badge>
-                  </Td>
-                  <Td className="font-semibold text-right">{item.quantity.toFixed(2)}</Td>
-                  <Td className="text-slate-500">{item.unit}</Td>
-                  <Td className="text-slate-600">{formatCurrency(item.unitPrice)}</Td>
-                  <Td className="font-semibold text-red-600">{formatCurrency(item.totalPrice)}</Td>
-                  <Td className="text-slate-500 text-sm">{formatDate(item.exitDate)}</Td>
-                  <Td><Badge color="slate">{reasonLabels[item.reason] ?? item.reason}</Badge></Td>
-                  <Td className="text-slate-500 text-sm">{item.user}</Td>
-                </tr>
-              ))}
-            </tbody>
-          </Table>
+        <div className="space-y-2">
+          {exits.map((exit) => {
+            const expanded = expandedIds.has(exit.id);
+            return (
+              <div key={exit.id} className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <button onClick={() => toggleExpand(exit.id)} className="text-slate-400 hover:text-slate-700 shrink-0">
+                      {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    </button>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge color={exit.program.type === "MERENDA" ? "green" : exit.program.type === "MANUTENCAO" ? "blue" : "purple"}>
+                          {PROGRAM_TYPES[exit.program.type as keyof typeof PROGRAM_TYPES]?.label ?? exit.program.type}
+                        </Badge>
+                        <Badge color="slate">{reasonLabels[exit.reason] ?? exit.reason}</Badge>
+                        <span className="text-xs text-slate-400">{formatDate(exit.exitDate)}</span>
+                        <span className="text-xs text-slate-400">por {exit.user.name}</span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-0.5">{exit.items.length} produto(s)</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0 ml-2">
+                    <span className="font-bold text-red-600">
+                      {formatCurrency(exit.items.reduce((s, i) => s + i.totalPrice, 0))}
+                    </span>
+                    <button onClick={() => requestEdit(exit)} className="p-1.5 rounded-lg text-slate-400 hover:bg-blue-50 hover:text-blue-600" title="Editar (requer senha)"><Pencil className="w-4 h-4" /></button>
+                    <button onClick={() => requestDelete(exit)} className="p-1.5 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500" title="Excluir (requer senha)"><Trash2 className="w-4 h-4" /></button>
+                  </div>
+                </div>
+                {expanded && (
+                  <div className="border-t border-slate-100 px-4 pb-3">
+                    {exit.observations && <p className="text-xs text-slate-400 italic mt-2 mb-1">Obs: {exit.observations}</p>}
+                    <Table>
+                      <thead><tr><Th>Produto</Th><Th>Qtd</Th><Th>Vl. Unit.</Th><Th>Total</Th></tr></thead>
+                      <tbody>
+                        {exit.items.map((item) => (
+                          <tr key={item.id} className="hover:bg-slate-50">
+                            <Td>{item.product.name} <span className="text-slate-400">({item.product.unit})</span></Td>
+                            <Td>{item.quantity.toFixed(2)} {item.product.unit}</Td>
+                            <Td>{formatCurrency(item.unitPrice)}</Td>
+                            <Td className="font-semibold text-red-600">{formatCurrency(item.totalPrice)}</Td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </Table>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -196,6 +258,51 @@ export default function StockExitsPage() {
           <Button onClick={handleSave} loading={saving}>Registrar Saida</Button>
         </div>
       </Modal>
+
+      {/* Modal editar saida */}
+      <Modal open={!!editExit} onClose={() => setEditExit(null)} title="Editar Saida de Estoque" size="lg">
+        {editExit && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <Input label="Data da Saida *" type="date" value={editMeta.exitDate} onChange={(e) => setEditMeta({ ...editMeta, exitDate: e.target.value })} />
+              <Select label="Motivo *" value={editMeta.reason} onChange={(e) => setEditMeta({ ...editMeta, reason: e.target.value })} options={Object.entries(EXIT_REASONS).map(([v, l]) => ({ value: v, label: l }))} />
+            </div>
+            <Input label="Observacoes" value={editMeta.observations} onChange={(e) => setEditMeta({ ...editMeta, observations: e.target.value })} />
+            <div>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Itens</p>
+              <div className="grid grid-cols-[2fr_1fr_1fr_1fr] gap-2 text-xs text-slate-400 font-semibold uppercase px-1 mb-1">
+                <span>Produto</span><span>Qtd *</span><span>Vl. Unit. *</span><span>Total</span>
+              </div>
+              <div className="space-y-2">
+                {editItems.map((row, i) => {
+                  const orig = editExit.items[i];
+                  const total = Number(row.quantity || 0) * Number(row.unitPrice || 0);
+                  return (
+                    <div key={row.id} className="grid grid-cols-[2fr_1fr_1fr_1fr] gap-2 items-center bg-slate-50 rounded-lg px-3 py-2">
+                      <span className="text-sm text-slate-700">{orig.product.name} <span className="text-slate-400">({orig.product.unit})</span></span>
+                      <input type="number" step="0.001" min="0.001" value={row.quantity} onChange={(e) => setEditItems((prev) => prev.map((r, idx) => idx === i ? { ...r, quantity: e.target.value } : r))} className="border border-slate-300 rounded px-2 py-1.5 text-sm w-full focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                      <input type="number" step="0.01" min="0" value={row.unitPrice} onChange={(e) => setEditItems((prev) => prev.map((r, idx) => idx === i ? { ...r, unitPrice: e.target.value } : r))} className="border border-slate-300 rounded px-2 py-1.5 text-sm w-full focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                      <span className="text-sm font-semibold text-red-600">{formatCurrency(total)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 pt-2 border-t border-slate-100">
+              <Button variant="secondary" onClick={() => setEditExit(null)}>Cancelar</Button>
+              <Button onClick={handleEditSave} loading={saving}>Salvar Alteracoes</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {pendingAction && (
+        <PasswordConfirmModal
+          actionLabel={pendingAction.label}
+          onConfirmed={() => { pendingAction.fn(); setPendingAction(null); }}
+          onClose={() => setPendingAction(null)}
+        />
+      )}
     </div>
   );
 }
