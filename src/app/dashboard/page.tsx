@@ -73,7 +73,7 @@ export default async function DashboardPage() {
           <DashboardCharts programFinancials={programFinancials} entries={entries} exits={exits} />
         </div>
         <div>
-          <StockAlerts products={products as any} />
+          <StockAlerts products={products as any} programs={programFinancials} />
         </div>
       </div>
     </div>

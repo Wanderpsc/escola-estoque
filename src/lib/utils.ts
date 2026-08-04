@@ -74,4 +74,6 @@ export const UNITS = [
   { value: "FR", label: "Frasco (FR)" },
   { value: "GR", label: "Grama (GR)" },
   { value: "ML", label: "Mililitro (ML)" },
+  { value: "RESMA", label: "Resma (RESMA)" },
+  { value: "SRV", label: "Serviço (SRV)" },
 ];

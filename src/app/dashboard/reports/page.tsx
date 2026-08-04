@@ -1,18 +1,68 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
-import { BarChart3, FileDown, Package, DollarSign, ArrowDownLeft, ArrowUpRight, AlertTriangle } from "lucide-react";
+import { useSession } from "next-auth/react";
+import { BarChart3, FileDown, Package, DollarSign, ArrowDownLeft, ArrowUpRight, AlertTriangle, Settings, ImageIcon, Save } from "lucide-react";
 import { PageHeader, Button, Select, Badge } from "@/components/ui";
 import { formatCurrency, formatDate, PROGRAM_TYPES, EXIT_REASONS } from "@/lib/utils";
 
 type ReportType = "balance" | "entries" | "exits" | "financial";
 
 export default function ReportsPage() {
+  const { data: session } = useSession();
+  const role = (session?.user as any)?.role;
+  const schoolId = (session?.user as any)?.schoolId;
+
   const [type, setType] = useState<ReportType>("balance");
   const [data, setData] = useState<any[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
+
+  // Custom header/logo settings
+  const [schoolData, setSchoolData] = useState<{ id: string; logoUrl: string | null; customHeader: string | null } | null>(null);
+  const [headerForm, setHeaderForm] = useState({ logoUrl: "", customHeader: "" });
+  const [savingHeader, setSavingHeader] = useState(false);
+  const [showHeaderSettings, setShowHeaderSettings] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!schoolId) return;
+    fetch(`/api/schools/${schoolId}`).then(async (r) => {
+      if (r.ok) {
+        const s = await r.json();
+        setSchoolData(s);
+        setHeaderForm({ logoUrl: s.logoUrl ?? "", customHeader: s.customHeader ?? "" });
+      }
+    });
+  }, [schoolId]);
+
+  function handleLogoFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 500_000) { toast.error("Logo muito grande. Use uma imagem menor que 500KB."); return; }
+    const reader = new FileReader();
+    reader.onload = (ev) => setHeaderForm((f) => ({ ...f, logoUrl: ev.target?.result as string }));
+    reader.readAsDataURL(file);
+  }
+
+  async function saveHeaderSettings() {
+    if (!schoolData) return;
+    setSavingHeader(true);
+    try {
+      const res = await fetch(`/api/schools/${schoolData.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ logoUrl: headerForm.logoUrl || null, customHeader: headerForm.customHeader || null }),
+      });
+      if (res.ok) {
+        const s = await res.json();
+        setSchoolData(s);
+        toast.success("Cabeçalho salvo!");
+        setShowHeaderSettings(false);
+      } else { toast.error("Erro ao salvar."); }
+    } finally { setSavingHeader(false); }
+  }
 
   async function generateReport() {
     setLoading(true);
@@ -45,18 +95,32 @@ export default function ReportsPage() {
         financial: "Relatório Financeiro",
       };
 
-      // Cabeçalho
+      // Cabeçalho personalizado
+      const headerText = schoolData?.customHeader?.split("\n") ?? ["EscolaEstoque"];
+      const logoBase64 = schoolData?.logoUrl ?? null;
+
       doc.setFillColor(30, 64, 175);
-      doc.rect(0, 0, 297, 30, "F");
+      doc.rect(0, 0, 297, 32, "F");
       doc.setTextColor(255, 255, 255);
-      doc.setFontSize(16);
+
+      let textX = 14;
+      if (logoBase64) {
+        try { doc.addImage(logoBase64, 14, 4, 24, 24); textX = 42; } catch {}
+      }
+
+      doc.setFontSize(13);
       doc.setFont("helvetica", "bold");
-      doc.text("EscolaEstoque", 14, 13);
-      doc.setFontSize(11);
+      doc.text(headerText[0] ?? "EscolaEstoque", textX, 12);
+      if (headerText[1]) {
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "normal");
+        doc.text(headerText[1], textX, 19);
+      }
+      doc.setFontSize(10);
       doc.setFont("helvetica", "normal");
-      doc.text(titles[type], 14, 22);
-      doc.setFontSize(9);
-      doc.text(`Gerado em ${formatDate(now)} às ${now.toLocaleTimeString("pt-BR")}`, 220, 22);
+      doc.text(titles[type], textX, headerText[1] ? 26 : 21);
+      doc.setFontSize(8);
+      doc.text(`Gerado em ${formatDate(now)} às ${now.toLocaleTimeString("pt-BR")}`, 220, 28);
 
       if (type === "balance") {
         autoTable(doc, {
@@ -171,7 +235,58 @@ export default function ReportsPage() {
         {data && (
           <Button onClick={exportPDF} loading={generating}><FileDown className="w-4 h-4" />Exportar PDF</Button>
         )}
+        {["SCHOOL_ADMIN", "MANAGER"].includes(role) && (
+          <Button variant="secondary" onClick={() => setShowHeaderSettings((v) => !v)}>
+            <Settings className="w-4 h-4" />{showHeaderSettings ? "Fechar Configurações" : "Cabeçalho do Relatório"}
+          </Button>
+        )}
       </PageHeader>
+
+      {/* Painel de configuração de cabeçalho */}
+      {showHeaderSettings && (
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 mb-6">
+          <h3 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
+            <ImageIcon className="w-4 h-4" />Cabeçalho Personalizado dos PDFs
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Logotipo (PNG/JPG, máx. 500KB)</label>
+              {headerForm.logoUrl && (
+                <img src={headerForm.logoUrl} alt="Logo" className="h-16 mb-2 rounded border border-slate-200 bg-white p-1" />
+              )}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => logoInputRef.current?.click()}
+                  className="px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-600 hover:bg-slate-100"
+                >
+                  {headerForm.logoUrl ? "Trocar imagem" : "Selecionar imagem"}
+                </button>
+                {headerForm.logoUrl && (
+                  <button type="button" onClick={() => setHeaderForm((f) => ({ ...f, logoUrl: "" }))} className="px-3 py-2 border border-red-200 text-red-600 rounded-lg text-sm hover:bg-red-50">
+                    Remover
+                  </button>
+                )}
+              </div>
+              <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoFile} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Texto do cabeçalho (1 linha por padrão, 2 linhas máx.)</label>
+              <textarea
+                rows={3}
+                value={headerForm.customHeader}
+                onChange={(e) => setHeaderForm((f) => ({ ...f, customHeader: e.target.value }))}
+                placeholder={"PREFEITURA MUNICIPAL DE EXEMPLO\nSECRETARIA MUNICIPAL DE EDUCAÇÃO"}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+              />
+              <p className="text-xs text-slate-400 mt-1">Cada linha de texto = 1 linha no cabeçalho do PDF.</p>
+            </div>
+          </div>
+          <div className="flex justify-end mt-4">
+            <Button onClick={saveHeaderSettings} loading={savingHeader}><Save className="w-4 h-4" />Salvar Cabeçalho</Button>
+          </div>
+        </div>
+      )}
 
       {/* Tipo de relatório */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">

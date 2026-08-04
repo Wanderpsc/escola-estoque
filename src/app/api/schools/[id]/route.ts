@@ -17,6 +17,8 @@ const updateSchema = z.object({
   email: z.string().email().optional(),
   director: z.string().optional(),
   active: z.boolean().optional(),
+  logoUrl: z.string().optional().nullable(),
+  customHeader: z.string().optional().nullable(),
 });
 
 export async function GET(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
