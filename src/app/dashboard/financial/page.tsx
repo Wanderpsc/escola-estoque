@@ -25,7 +25,7 @@ export default function FinancialPage() {
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<"budget" | "movement" | null>(null);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ programId: "", budget: 0, type: "CREDIT", category: "NORMAL", amount: 0, description: "", reference: "", date: new Date().toISOString().split("T")[0], productId: "", quantity: 0, unitPrice: 0 });
+  const [form, setForm] = useState({ programId: "", budget: 0, type: "CREDIT", category: "NORMAL", amount: 0, description: "", reference: "", date: new Date().toISOString().split("T")[0], productId: "", quantity: 0, unitPrice: 0, selectedProductIds: [] as string[] });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -55,25 +55,29 @@ export default function FinancialPage() {
 
   async function saveMovement() {
     if (form.category === "EXTRA") {
-      if (!form.productId) { toast.error("Selecione o produto"); return; }
-      if (!form.quantity || form.quantity <= 0) { toast.error("Informe a quantidade"); return; }
-      if (!form.unitPrice || form.unitPrice <= 0) { toast.error("Informe o valor unitário"); return; }
+      if (!form.amount || Number(form.amount) <= 0) { toast.error("Informe o valor gasto"); return; }
     }
     setSaving(true);
     try {
       let payload: any = { ...form };
       if (form.category === "EXTRA") {
         payload.type = "DEBIT";
-        payload.amount = Number(form.quantity) * Number(form.unitPrice);
-        const prod = products.find(p => p.id === form.productId);
-        payload.unit = prod?.unit ?? "";
+        payload.amount = Number(form.amount);
+        payload.productId = null;
+        payload.quantity = null;
+        payload.unit = null;
+        // Armazena produtos relacionados na referência (apenas para memória)
+        if (form.selectedProductIds.length > 0) {
+          const names = products.filter(p => form.selectedProductIds.includes(p.id)).map(p => p.name).join(", ");
+          payload.reference = `Ref. produtos: ${names}`;
+        }
       } else {
         payload.amount = Number(form.amount);
       }
       const res = await fetch("/api/financial/movements", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? "Erro"); return; }
-      toast.success(form.category === "EXTRA" ? "Saída extra registrada! Estoque atualizado." : "Movimentação registrada!");
+      toast.success(form.category === "EXTRA" ? "Saída extra registrada!" : "Movimentação registrada!");
       setModal(null);
       load();
     } finally { setSaving(false); }
@@ -285,7 +289,7 @@ export default function FinancialPage() {
                 <button
                   key={opt.value}
                   type="button"
-                  onClick={() => setForm({ ...form, category: opt.value, type: opt.value === "EXTRA" ? "DEBIT" : form.type, productId: "", quantity: 0, unitPrice: 0 })}
+                  onClick={() => setForm({ ...form, category: opt.value, type: opt.value === "EXTRA" ? "DEBIT" : form.type, productId: "", quantity: 0, unitPrice: 0, selectedProductIds: [] })}
                   className={`text-left px-3 py-2.5 rounded-xl border-2 transition-colors ${
                     form.category === opt.value
                       ? opt.value === "EXTRA"
@@ -307,29 +311,35 @@ export default function FinancialPage() {
 
           {form.category === "EXTRA" ? (
             <>
+              <Input label="Valor total gasto (R$) *" type="number" min={0} step={0.01} value={form.amount || ""} onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })} />
               <div>
-                <label className="text-xs text-slate-500 mb-1 block">Produto a abater *</label>
-                <select
-                  value={form.productId}
-                  onChange={(e) => setForm({ ...form, productId: e.target.value })}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">— Selecione o produto —</option>
-                  {products.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name} ({p.unit})</option>
-                  ))}
-                </select>
+                <label className="text-xs text-slate-500 mb-1 block">Produtos relacionados <span className="text-slate-400">(opcional — apenas referência; a baixa de estoque é feita separadamente)</span></label>
+                {products.length === 0 ? (
+                  <p className="text-xs text-slate-400 italic">Nenhum produto cadastrado.</p>
+                ) : (
+                  <div className="border border-slate-200 rounded-lg p-3 max-h-40 overflow-y-auto space-y-1.5 bg-slate-50">
+                    {products.map((p) => (
+                      <label key={p.id} className="flex items-center gap-2 cursor-pointer hover:bg-white rounded px-1 py-0.5">
+                        <input
+                          type="checkbox"
+                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                          checked={form.selectedProductIds.includes(p.id)}
+                          onChange={(e) => {
+                            setForm((f) => ({
+                              ...f,
+                              selectedProductIds: e.target.checked
+                                ? [...f.selectedProductIds, p.id]
+                                : f.selectedProductIds.filter((id) => id !== p.id),
+                            }));
+                          }}
+                        />
+                        <span className="text-sm text-slate-700">{p.name}</span>
+                        <span className="text-xs text-slate-400">({p.unit})</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <Input label="Quantidade *" type="number" min={0} step={0.001} value={form.quantity || ""} onChange={(e) => setForm({ ...form, quantity: Number(e.target.value) })} />
-                <Input label="Valor unitário (R$) *" type="number" min={0} step={0.01} value={form.unitPrice || ""} onChange={(e) => setForm({ ...form, unitPrice: Number(e.target.value) })} />
-              </div>
-              {form.quantity > 0 && form.unitPrice > 0 && (
-                <div className="bg-rose-50 border border-rose-200 rounded-lg px-4 py-3 flex items-center justify-between">
-                  <span className="text-sm text-rose-700">Total a debitar do orçamento e do estoque:</span>
-                  <span className="text-base font-bold text-rose-700">{formatCurrency(form.quantity * form.unitPrice)}</span>
-                </div>
-              )}
             </>
           ) : (
             <div className="grid grid-cols-2 gap-4">

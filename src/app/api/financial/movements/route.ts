@@ -51,71 +51,19 @@ export async function POST(req: NextRequest) {
 
   const { productId, quantity, unit, ...movementData } = parsed.data;
 
-  // Validação extra para categoria EXTRA
-  if (movementData.category === "EXTRA") {
-    if (!productId || !quantity) {
-      return NextResponse.json({ error: "Produto e quantidade são obrigatórios para Saída Extra" }, { status: 400 });
-    }
-
-    // Verificar saldo do produto antes de criar a saída
-    const product = await db.product.findUnique({
-      where: { id: productId },
-      include: {
-        entryItems: { select: { quantity: true } },
-        exitItems: { select: { quantity: true } },
-        adjustments: { select: { quantity: true } },
-      },
-    });
-    if (!product) return NextResponse.json({ error: "Produto não encontrado" }, { status: 404 });
-
-    const balance =
-      product.entryItems.reduce((s, i) => s + i.quantity, 0) +
-      product.adjustments.reduce((s, i) => s + i.quantity, 0) -
-      product.exitItems.reduce((s, i) => s + i.quantity, 0);
-
-    if (quantity > balance) {
-      return NextResponse.json(
-        { error: `Saldo insuficiente para "${product.name}". Saldo atual: ${balance} ${product.unit}` },
-        { status: 422 }
-      );
-    }
-  }
-
   const movement = await db.budgetMovement.create({
     data: {
       ...movementData,
       date: new Date(movementData.date),
-      productId: movementData.category === "EXTRA" ? productId : null,
-      quantity: movementData.category === "EXTRA" ? quantity : null,
-      unit: movementData.category === "EXTRA" ? unit : null,
+      productId: movementData.category === "EXTRA" ? (productId ?? null) : null,
+      quantity: movementData.category === "EXTRA" ? (quantity ?? null) : null,
+      unit: movementData.category === "EXTRA" ? (unit ?? null) : null,
     },
     include: {
       program: { select: { name: true, type: true } },
       product: { select: { name: true, unit: true } },
     },
   });
-
-  // Para Saída Extra: cria automaticamente a saída de estoque
-  if (movementData.category === "EXTRA" && productId && quantity) {
-    const unitPrice = movementData.amount / quantity;
-    await db.stockExit.create({
-      data: {
-        exitDate: new Date(movementData.date),
-        reason: "OUTRO",
-        programId: movementData.programId,
-        userId,
-        observations: `Saída Extra — ${movementData.description}`,
-        items: {
-          create: [{
-            productId,
-            quantity,
-            unitPrice,
-            totalPrice: movementData.amount,
-          }],
-        },
-      },
-    });
-  }
 
   return NextResponse.json(movement, { status: 201 });
 }
