@@ -2,11 +2,10 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
-import { Plus, ShoppingBag, ChevronDown, ChevronUp, Trash2, Pencil } from "lucide-react";
+import { Plus, ShoppingBag, ChevronDown, ChevronUp, Trash2, X } from "lucide-react";
 import { PageHeader, Button, Badge, Modal, Input, Select, EmptyState, Table, Th, Td } from "@/components/ui";
-import { formatCurrency, formatDate, PROGRAM_TYPES, UNITS } from "@/lib/utils";
+import { formatCurrency, formatDate, PROGRAM_TYPES } from "@/lib/utils";
 import PasswordConfirmModal from "@/components/PasswordConfirmModal";
-import { X } from "lucide-react";
 
 interface EntryItem { id: string; quantity: number; unitPrice: number; totalPrice: number; product: { name: string; unit: string } }
 interface Purchase {
