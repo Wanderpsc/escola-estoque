@@ -9,7 +9,7 @@ import PasswordConfirmModal from "@/components/PasswordConfirmModal";
 
 interface ExitItem { id: string; quantity: number; unitPrice: number; totalPrice: number; product: { name: string; unit: string } }
 interface Exit {
-  id: string; exitDate: string; reason: string; observations?: string;
+  id: string; exitDate: string; reason: string; observations?: string; isExtra?: boolean;
   program: { name: string; type: string }; user: { name: string };
   items: ExitItem[];
 }
@@ -18,6 +18,7 @@ const EMPTY_FORM = {
   programId: "", productId: "", quantity: 1, unitPrice: 0,
   exitDate: new Date().toISOString().split("T")[0],
   reason: "CONSUMO", observations: "",
+  isExtra: false,
 };
 
 export default function StockExitsPage() {
@@ -79,12 +80,13 @@ export default function StockExitsPage() {
           exitDate: form.exitDate,
           reason: form.reason,
           observations: form.observations,
+          isExtra: form.isExtra,
           items: [{ productId: form.productId, quantity: Number(form.quantity), unitPrice: Number(form.unitPrice) }],
         }),
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? data.message ?? "Erro ao registrar saida"); return; }
-      toast.success("Saida registrada!");
+      toast.success(form.isExtra ? "Saída Extra registrada! Débito financeiro criado automaticamente." : "Saida registrada!");
       setModal(false);
       setForm(EMPTY_FORM);
       load();
@@ -176,6 +178,7 @@ export default function StockExitsPage() {
                           {PROGRAM_TYPES[exit.program.type as keyof typeof PROGRAM_TYPES]?.label ?? exit.program.type}
                         </Badge>
                         <Badge color="slate">{reasonLabels[exit.reason] ?? exit.reason}</Badge>
+                        {exit.isExtra && <Badge color="orange">Extra</Badge>}
                         <span className="text-xs text-slate-400">{formatDate(exit.exitDate)}</span>
                         <span className="text-xs text-slate-400">por {exit.user.name}</span>
                       </div>
@@ -252,6 +255,18 @@ export default function StockExitsPage() {
           <Input label="Observacoes" value={form.observations}
             onChange={(e) => setForm({ ...form, observations: e.target.value })}
             placeholder="Destino, turma atendida, responsavel, etc." />
+          <label className={`flex items-start gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors ${form.isExtra ? "border-orange-400 bg-orange-50" : "border-slate-200 hover:border-slate-300"}`}>
+            <input
+              type="checkbox"
+              className="mt-0.5 rounded border-slate-300 text-orange-500"
+              checked={form.isExtra}
+              onChange={(e) => setForm({ ...form, isExtra: e.target.checked })}
+            />
+            <div>
+              <p className="text-sm font-semibold text-slate-700">Saída Extra <span className="font-normal text-orange-600">(produto sem NF)</span></p>
+              <p className="text-xs text-slate-400 leading-tight">Marca a saída como extra e cria automaticamente um débito no orçamento do programa.</p>
+            </div>
+          </label>
         </div>
         <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
           <Button variant="secondary" onClick={() => { setModal(false); setForm(EMPTY_FORM); }}>Cancelar</Button>

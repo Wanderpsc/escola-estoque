@@ -80,5 +80,11 @@ export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id:
   }
 
   await db.stockExit.delete({ where: { id } });
+
+  // Se era saída extra, reverte o débito financeiro criado
+  if (exit.isExtra) {
+    await db.budgetMovement.deleteMany({ where: { reference: `EXIT-EXTRA-${id}` } });
+  }
+
   return NextResponse.json({ ok: true });
 }

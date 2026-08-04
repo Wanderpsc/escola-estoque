@@ -7,7 +7,7 @@ import { BarChart3, FileDown, Package, DollarSign, ArrowDownLeft, ArrowUpRight, 
 import { PageHeader, Button, Select, Badge } from "@/components/ui";
 import { formatCurrency, formatDate, PROGRAM_TYPES, EXIT_REASONS } from "@/lib/utils";
 
-type ReportType = "balance" | "entries" | "exits" | "financial";
+type ReportType = "balance" | "entries" | "exits" | "financial" | "extra_exits";
 
 export default function ReportsPage() {
   const { data: session } = useSession();
@@ -72,6 +72,7 @@ export default function ReportsPage() {
         entries: "/api/stock/entries",
         exits: "/api/stock/exits",
         financial: "/api/financial/movements",
+        extra_exits: "/api/stock/exits?extra=true",
       };
       const res = await fetch(endpoints[type]);
       if (res.ok) setData(await res.json());
@@ -93,6 +94,7 @@ export default function ReportsPage() {
         entries: "Relatório de Entradas (Notas Fiscais)",
         exits: "Relatório de Saídas",
         financial: "Relatório Financeiro",
+        extra_exits: "Relatório de Saídas Extras (sem NF)",
       };
 
       // Cabeçalho personalizado
@@ -227,6 +229,7 @@ export default function ReportsPage() {
     { value: "entries", label: "Entradas (Notas Fiscais)", icon: ArrowUpRight, desc: "Histórico de entradas com dados da NF" },
     { value: "exits", label: "Saídas de Estoque", icon: ArrowDownLeft, desc: "Histórico de saídas e consumo" },
     { value: "financial", label: "Movimentações Financeiras", icon: DollarSign, desc: "Créditos e débitos por programa" },
+    { value: "extra_exits", label: "Saídas Extras (sem NF)", icon: AlertTriangle, desc: "Saídas de produtos não registrados em nota fiscal" },
   ];
 
   return (

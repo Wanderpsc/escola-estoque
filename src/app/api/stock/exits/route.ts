@@ -16,6 +16,7 @@ const exitSchema = z.object({
   programId: z.string(),
   observations: z.string().optional(),
   items: z.array(exitItemSchema).min(1),
+  isExtra: z.boolean().optional().default(false),
 });
 
 export async function GET(req: NextRequest) {
@@ -28,7 +29,9 @@ export async function GET(req: NextRequest) {
   const programId = url.searchParams.get("programId");
 
   const where: any = role === "SUPER_ADMIN" ? {} : { program: { schoolId: schoolId ?? "" } };
+  const extra = url.searchParams.get("extra");
   if (programId) where.programId = programId;
+  if (extra === "true") where.isExtra = true;
 
   const exits = await db.stockExit.findMany({
     where,
@@ -102,5 +105,21 @@ export async function POST(req: NextRequest) {
       program: { select: { name: true } },
     },
   });
+
+  // Saída Extra: cria débito automático no orçamento do programa
+  if (exitData.isExtra && totalValue > 0) {
+    await db.budgetMovement.create({
+      data: {
+        programId: exitData.programId,
+        type: "DEBIT",
+        category: "EXTRA",
+        amount: totalValue,
+        description: `Saída Extra — ${exitData.observations ?? items.map((_, i) => `item ${i + 1}`).join(", ")}`,
+        reference: `EXIT-EXTRA-${exit.id}`,
+        date: new Date(exitData.exitDate),
+      },
+    });
+  }
+
   return NextResponse.json(exit, { status: 201 });
 }
