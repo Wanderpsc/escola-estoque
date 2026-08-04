@@ -89,14 +89,14 @@ export default function StockEntriesPage() {
   }
 
   async function handleSave() {
-    if (!header.programId || !header.supplierId || !header.invoiceNumber || !header.invoiceDate) { toast.error("Preencha todos os campos obrigatorios (*)"); return; }
+    if (!header.programId || !header.supplierId || !header.invoiceDate) { toast.error("Preencha todos os campos obrigatorios (*)"); return; }
     const validItems = items.filter((r) => r.productId && Number(r.quantity) > 0);
     if (validItems.length === 0) { toast.error("Adicione ao menos 1 produto"); return; }
     setSaving(true);
     try {
       const res = await fetch("/api/stock/entries", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ programId: header.programId, supplierId: header.supplierId, invoiceNumber: header.invoiceNumber, invoiceDate: header.invoiceDate, observations: header.observations, items: validItems.map((r) => ({ productId: r.productId, quantity: Number(r.quantity), unitPrice: Number(r.unitPrice), lot: r.lot || undefined })) }),
+        body: JSON.stringify({ programId: header.programId, supplierId: header.supplierId, invoiceNumber: header.invoiceNumber || `SEM-NF-${Date.now().toString().slice(-8)}`, invoiceDate: header.invoiceDate, observations: header.observations, items: validItems.map((r) => ({ productId: r.productId, quantity: Number(r.quantity), unitPrice: Number(r.unitPrice), lot: r.lot || undefined })) }),
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? "Erro ao registrar entrada"); return; }
@@ -213,7 +213,7 @@ export default function StockEntriesPage() {
               <Select label="Fornecedor *" value={header.supplierId} onChange={(e) => setHeader({ ...header, supplierId: e.target.value })} options={[{ value: "", label: "Selecione o fornecedor" }, ...suppliers.map((s) => ({ value: s.id, label: s.name }))]} />
             </div>
             <div className="grid grid-cols-3 gap-4">
-              <Input label="Numero da NF *" value={header.invoiceNumber} onChange={(e) => setHeader({ ...header, invoiceNumber: e.target.value })} />
+              <Input label="Numero da NF (opcional)" value={header.invoiceNumber} onChange={(e) => setHeader({ ...header, invoiceNumber: e.target.value })} placeholder="Deixe vazio para gerar automaticamente" />
               <Input label="Data de Entrada *" type="date" value={header.invoiceDate} onChange={(e) => setHeader({ ...header, invoiceDate: e.target.value })} />
               <Input label="Observacoes" value={header.observations} onChange={(e) => setHeader({ ...header, observations: e.target.value })} />
             </div>
@@ -223,14 +223,14 @@ export default function StockEntriesPage() {
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Produtos da NF ({items.filter((r) => r.productId).length}/{items.length})</p>
               <button onClick={addItem} className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium"><Plus className="w-3 h-3" /> Adicionar produto</button>
             </div>
-            <div className="grid grid-cols-[2.5fr_1fr_1fr_1fr_auto_auto] gap-2 text-xs font-semibold text-slate-400 uppercase px-1 mb-1">
+            <div className="grid grid-cols-[2fr_0.8fr_2fr_1fr_1fr_auto] gap-2 text-xs font-semibold text-slate-400 uppercase px-1 mb-1">
               <span>Produto *</span><span>Qtd *</span><span>Vl. Unit. (R$) *</span><span>Total</span><span>Lote</span><span></span>
             </div>
             <div className="space-y-2">
               {items.map((row, i) => {
                 const rowTotal = Number(row.quantity || 0) * Number(row.unitPrice || 0);
                 return (
-                  <div key={i} className="grid grid-cols-[2.5fr_1fr_1fr_1fr_1fr_auto] gap-2 items-center bg-white border border-slate-200 rounded-lg px-3 py-2">
+                  <div key={i} className="grid grid-cols-[2fr_0.8fr_2fr_1fr_1fr_auto] gap-2 items-center bg-white border border-slate-200 rounded-lg px-3 py-2">
                     <div className="flex gap-1">
                       <select value={row.productId} onChange={(e) => setItemField(i, "productId", e.target.value)} className="flex-1 border border-slate-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                         <option value="">Selecionar...</option>
