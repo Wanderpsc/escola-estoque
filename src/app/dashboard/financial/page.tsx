@@ -63,16 +63,25 @@ export default function FinancialPage() {
       if (form.category === "EXTRA") {
         payload.type = "DEBIT";
         payload.amount = Number(form.amount);
-        payload.productId = null;
-        payload.quantity = null;
-        payload.unit = null;
-        // Armazena produtos relacionados na referência (apenas para memória)
+        // Remover campos não usados (evita falha de validação Zod com null)
+        delete payload.productId;
+        delete payload.quantity;
+        delete payload.unitPrice;
+        delete payload.unit;
+        delete payload.selectedProductIds;
+        delete payload.budget;
         if (form.selectedProductIds.length > 0) {
           const names = products.filter(p => form.selectedProductIds.includes(p.id)).map(p => p.name).join(", ");
           payload.reference = `Ref. produtos: ${names}`;
         }
       } else {
         payload.amount = Number(form.amount);
+        delete payload.productId;
+        delete payload.quantity;
+        delete payload.unitPrice;
+        delete payload.unit;
+        delete payload.selectedProductIds;
+        delete payload.budget;
       }
       const res = await fetch("/api/financial/movements", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const data = await res.json();
