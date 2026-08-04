@@ -52,7 +52,7 @@ export default function StockExitsPage() {
   const filteredBalance = balance.filter((p) => {
     if (!form.programId) return true;
     return selectedProgramType && p.program?.type === selectedProgramType;
-  }).filter((p) => p.balance > 0);
+  }).filter((p) => form.isExtra || p.balance > 0); // extra: mostra todos os produtos mesmo sem saldo
 
   const selectedProduct = balance.find((p) => p.id === form.productId);
   const totalValue = Number(form.quantity) * Number(form.unitPrice);
@@ -67,7 +67,7 @@ export default function StockExitsPage() {
       toast.error("Preencha todos os campos obrigatórios (*)"); return;
     }
     if (Number(form.quantity) <= 0) { toast.error("Quantidade deve ser maior que zero"); return; }
-    if (selectedProduct && Number(form.quantity) > selectedProduct.balance) {
+    if (!form.isExtra && selectedProduct && Number(form.quantity) > selectedProduct.balance) {
       toast.error(`Saldo insuficiente. Disponível: ${selectedProduct.balance.toFixed(2)} ${selectedProduct.unit}`); return;
     }
     setSaving(true);

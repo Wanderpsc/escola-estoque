@@ -65,24 +65,26 @@ export async function POST(req: NextRequest) {
   const { items, ...exitData } = parsed.data;
   const totalValue = items.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
 
-  // Verificar saldo antes de registrar saída
-  for (const item of items) {
-    const product = await db.product.findUnique({
-      where: { id: item.productId },
-      include: {
-        entryItems: { select: { quantity: true } },
-        exitItems: { select: { quantity: true } },
-      },
-    });
-    if (!product) continue;
-    const balance =
-      product.entryItems.reduce((s, i) => s + i.quantity, 0) -
-      product.exitItems.reduce((s, i) => s + i.quantity, 0);
-    if (item.quantity > balance) {
-      return NextResponse.json(
-        { error: `Saldo insuficiente para o produto "${product.name}". Saldo atual: ${balance} ${product.unit}` },
-        { status: 422 }
-      );
+  // Verificar saldo antes de registrar saída (pulado para saídas extra)
+  if (!exitData.isExtra) {
+    for (const item of items) {
+      const product = await db.product.findUnique({
+        where: { id: item.productId },
+        include: {
+          entryItems: { select: { quantity: true } },
+          exitItems: { select: { quantity: true } },
+        },
+      });
+      if (!product) continue;
+      const balance =
+        product.entryItems.reduce((s, i) => s + i.quantity, 0) -
+        product.exitItems.reduce((s, i) => s + i.quantity, 0);
+      if (item.quantity > balance) {
+        return NextResponse.json(
+          { error: `Saldo insuficiente para o produto "${product.name}". Saldo atual: ${balance} ${product.unit}` },
+          { status: 422 }
+        );
+      }
     }
   }
 
