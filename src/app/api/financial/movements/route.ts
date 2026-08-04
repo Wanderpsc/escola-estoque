@@ -40,7 +40,6 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const session = await auth();
   const role = (session?.user as any)?.role;
-  const userId = (session?.user as any)?.id;
   if (!session || !["SUPER_ADMIN", "SCHOOL_ADMIN", "MANAGER", "ACCOUNTANT"].includes(role)) {
     return NextResponse.json({ error: "Não autorizado" }, { status: 403 });
   }
