@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { KeyRound, Eye, EyeOff, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -22,7 +23,12 @@ export default function PasswordConfirmModal({ actionLabel, onConfirmed, onClose
   const [show, setShow] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { setMounted(true); }, []);
+
+  if (!mounted) return null;
 
   async function handleConfirm() {
     if (!password.trim()) { setError("Digite sua senha"); return; }
@@ -48,8 +54,8 @@ export default function PasswordConfirmModal({ actionLabel, onConfirmed, onClose
     }
   }
 
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+  return createPortal(
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onClick={(e) => e.stopPropagation()}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
         <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center shrink-0">
@@ -66,7 +72,7 @@ export default function PasswordConfirmModal({ actionLabel, onConfirmed, onClose
             ref={inputRef}
             autoFocus
             type={show ? "text" : "password"}
-            autoComplete="off"
+            autoComplete="new-password"
             value={password}
             onChange={(e) => { setPassword(e.target.value); setError(null); }}
             onKeyDown={(e) => e.key === "Enter" && handleConfirm()}
@@ -103,6 +109,7 @@ export default function PasswordConfirmModal({ actionLabel, onConfirmed, onClose
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
