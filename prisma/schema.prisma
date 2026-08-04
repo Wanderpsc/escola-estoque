@@ -207,7 +207,8 @@ model StockExit {
   program      Program  @relation(fields: [programId], references: [id])
   userId       String
   user         User     @relation(fields: [userId], references: [id])
-  observations String?  isExtra       Boolean  @default(false) // saída sem nota fiscal — gera débito financeiro automático
+  observations String?
+  isExtra      Boolean  @default(false) // saída sem nota fiscal — gera débito financeiro automático
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
