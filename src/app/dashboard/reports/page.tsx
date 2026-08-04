@@ -3,11 +3,11 @@
 import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useSession } from "next-auth/react";
-import { BarChart3, FileDown, Package, DollarSign, ArrowDownLeft, ArrowUpRight, AlertTriangle, Settings, ImageIcon, Save } from "lucide-react";
+import { BarChart3, FileDown, Package, DollarSign, ArrowDownLeft, ArrowUpRight, AlertTriangle, Settings, ImageIcon, Save, ShoppingBag } from "lucide-react";
 import { PageHeader, Button, Select, Badge } from "@/components/ui";
 import { formatCurrency, formatDate, PROGRAM_TYPES, EXIT_REASONS } from "@/lib/utils";
 
-type ReportType = "balance" | "entries" | "exits" | "financial" | "extra_exits";
+type ReportType = "balance" | "entries" | "exits" | "financial" | "extra_exits" | "purchases";
 
 export default function ReportsPage() {
   const { data: session } = useSession();
@@ -73,6 +73,7 @@ export default function ReportsPage() {
         exits: "/api/stock/exits",
         financial: "/api/financial/movements",
         extra_exits: "/api/stock/exits?extra=true",
+        purchases: "/api/stock/entries?purchases=true",
       };
       const res = await fetch(endpoints[type]);
       if (res.ok) setData(await res.json());
@@ -95,6 +96,7 @@ export default function ReportsPage() {
         exits: "Relatório de Saídas",
         financial: "Relatório Financeiro",
         extra_exits: "Relatório de Saídas Extras (sem NF)",
+        purchases: "Relatório de Compras Informais",
       };
 
       // Cabeçalho personalizado
@@ -187,6 +189,52 @@ export default function ReportsPage() {
           styles: { fontSize: 8 },
           headStyles: { fillColor: [30, 64, 175] },
         });
+      } else if (type === "purchases") {
+        autoTable(doc, {
+          startY: 40,
+          head: [["Data", "Programa", "Fornecedor", "Produto", "Qtd", "Vl. Unit.", "Total", "Obs."]],
+          body: data.flatMap((r: any) =>
+            r.items.map((i: any) => [
+              formatDate(r.invoiceDate),
+              PROGRAM_TYPES[r.program?.type as keyof typeof PROGRAM_TYPES]?.label ?? r.program?.type ?? "",
+              r.supplier.name,
+              `${i.product.name} (${i.product.unit})`,
+              i.quantity.toFixed(2),
+              formatCurrency(i.unitPrice),
+              formatCurrency(i.totalPrice),
+              r.observations ?? "",
+            ])
+          ),
+          styles: { fontSize: 7 },
+          headStyles: { fillColor: [180, 83, 9] },
+        });
+        const totalP = data.reduce((s: number, r: any) => s + r.totalValue, 0);
+        const yP = (doc as any).lastAutoTable.finalY + 8;
+        doc.setFont("helvetica", "bold");
+        doc.text(`Total Compras Informais: ${formatCurrency(totalP)}`, 14, yP);
+      } else if (type === "extra_exits") {
+        autoTable(doc, {
+          startY: 40,
+          head: [["Data", "Programa", "Produto", "Qtd", "Vl. Unit.", "Total", "Observações", "Usuário"]],
+          body: data.flatMap((r: any) =>
+            r.items.map((i: any) => [
+              formatDate(r.exitDate),
+              PROGRAM_TYPES[r.program?.type as keyof typeof PROGRAM_TYPES]?.label ?? r.program?.type ?? "",
+              `${i.product.name} (${i.product.unit})`,
+              i.quantity.toFixed(2),
+              formatCurrency(i.unitPrice),
+              formatCurrency(i.totalPrice),
+              r.observations ?? "",
+              r.user.name,
+            ])
+          ),
+          styles: { fontSize: 7 },
+          headStyles: { fillColor: [234, 88, 12] },
+        });
+        const totalX = data.reduce((s: number, r: any) => s + r.items.reduce((ss: number, i: any) => ss + i.totalPrice, 0), 0);
+        const yX = (doc as any).lastAutoTable.finalY + 8;
+        doc.setFont("helvetica", "bold");
+        doc.text(`Total Saídas Extras: ${formatCurrency(totalX)}`, 14, yX);
       } else {
         autoTable(doc, {
           startY: 38,
@@ -230,6 +278,7 @@ export default function ReportsPage() {
     { value: "exits", label: "Saídas de Estoque", icon: ArrowDownLeft, desc: "Histórico de saídas e consumo" },
     { value: "financial", label: "Movimentações Financeiras", icon: DollarSign, desc: "Créditos e débitos por programa" },
     { value: "extra_exits", label: "Saídas Extras (sem NF)", icon: AlertTriangle, desc: "Saídas de produtos não registrados em nota fiscal" },
+    { value: "purchases", label: "Compras Informais", icon: ShoppingBag, desc: "Compras realizadas sem nota fiscal formal" },
   ];
 
   return (

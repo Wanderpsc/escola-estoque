@@ -172,6 +172,7 @@ model StockEntry {
   userId        String
   user          User     @relation(fields: [userId], references: [id])
   observations  String?
+  isPurchase    Boolean  @default(false) // compra informal sem NF formal — gera débito financeiro automático
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

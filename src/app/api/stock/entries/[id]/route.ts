@@ -90,5 +90,11 @@ export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id:
 
   // Cascade: EntryItems são deletados automaticamente (onDelete: Cascade no schema)
   await db.stockEntry.delete({ where: { id } });
+
+  // Compra informal: reverte o débito financeiro criado
+  if (entry.isPurchase) {
+    await db.budgetMovement.deleteMany({ where: { reference: `PURCHASE-${id}` } });
+  }
+
   return NextResponse.json({ ok: true });
 }

@@ -21,6 +21,7 @@ const entrySchema = z.object({
   programId: z.string(),
   observations: z.string().optional(),
   items: z.array(entryItemSchema).min(1),
+  isPurchase: z.boolean().optional().default(false),
 });
 
 export async function GET(req: NextRequest) {
@@ -34,6 +35,9 @@ export async function GET(req: NextRequest) {
 
   const where: any = role === "SUPER_ADMIN" ? {} : { program: { schoolId: schoolId ?? "" } };
   if (programId) where.programId = programId;
+  const purchases = url.searchParams.get("purchases");
+  if (purchases === "true") where.isPurchase = true;
+  else if (purchases === "false") where.isPurchase = false;
 
   const entries = await db.stockEntry.findMany({
     where,
@@ -91,5 +95,21 @@ export async function POST(req: NextRequest) {
       supplier: { select: { name: true } },
     },
   });
+
+  // Compra informal: cria débito automático no orçamento
+  if (entryData.isPurchase && totalValue > 0) {
+    await db.budgetMovement.create({
+      data: {
+        programId: entryData.programId,
+        type: "DEBIT",
+        category: "EXTRA",
+        amount: totalValue,
+        description: `Compra Informal — ${entryData.observations ?? entry.invoiceNumber}`,
+        reference: `PURCHASE-${entry.id}`,
+        date: new Date(entryData.invoiceDate),
+      },
+    });
+  }
+
   return NextResponse.json(entry, { status: 201 });
 }
