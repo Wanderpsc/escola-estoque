@@ -66,6 +66,7 @@ export default function PasswordConfirmModal({ actionLabel, onConfirmed, onClose
             ref={inputRef}
             autoFocus
             type={show ? "text" : "password"}
+            autoComplete="off"
             value={password}
             onChange={(e) => { setPassword(e.target.value); setError(null); }}
             onKeyDown={(e) => e.key === "Enter" && handleConfirm()}
