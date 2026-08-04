@@ -2,29 +2,43 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
-import { Plus, DollarSign, TrendingUp, TrendingDown } from "lucide-react";
+import { Plus, DollarSign, TrendingUp, TrendingDown, FileText } from "lucide-react";
 import { PageHeader, Button, Badge, Modal, Input, Select, Textarea, EmptyState, Table, Th, Td } from "@/components/ui";
 import { formatCurrency, formatDate, PROGRAM_TYPES } from "@/lib/utils";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 interface Program { id: string; name: string; type: string; budget: number }
-interface Movement { id: string; type: "CREDIT" | "DEBIT"; category: string; amount: number; description: string; reference?: string; date: string; program: { name: string; type: string } }
+interface Product { id: string; name: string; unit: string }
+interface Movement {
+  id: string; type: "CREDIT" | "DEBIT"; category: string; amount: number;
+  description: string; reference?: string; date: string;
+  program: { name: string; type: string };
+  product?: { name: string; unit: string } | null;
+  quantity?: number | null;
+}
 
 export default function FinancialPage() {
   const [programs, setPrograms] = useState<Program[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [movements, setMovements] = useState<Movement[]>([]);
-  const [entries, setEntries] = useState<Array<{ totalValue: number; programId: string }>>([]);
+  const [entries, setEntries] = useState<Array<{ totalValue: number; programId: string }>>([])
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<"budget" | "movement" | null>(null);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ programId: "", budget: 0, type: "CREDIT", category: "NORMAL", amount: 0, description: "", reference: "", date: new Date().toISOString().split("T")[0] });
+  const [form, setForm] = useState({ programId: "", budget: 0, type: "CREDIT", category: "NORMAL", amount: 0, description: "", reference: "", date: new Date().toISOString().split("T")[0], productId: "", quantity: 0, unitPrice: 0 });
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [prRes, mvRes, enRes] = await Promise.all([fetch("/api/programs"), fetch("/api/financial/movements"), fetch("/api/stock/entries")]);
+    const [prRes, mvRes, enRes, pdRes] = await Promise.all([
+      fetch("/api/programs"),
+      fetch("/api/financial/movements"),
+      fetch("/api/stock/entries"),
+      fetch("/api/products"),
+    ]);
     if (prRes.ok) setPrograms(await prRes.json());
     if (mvRes.ok) setMovements(await mvRes.json());
     if (enRes.ok) setEntries(await enRes.json());
+    if (pdRes.ok) setProducts(await pdRes.json());
     setLoading(false);
   }, []);
 
@@ -40,12 +54,28 @@ export default function FinancialPage() {
   }
 
   async function saveMovement() {
+    if (form.category === "EXTRA") {
+      if (!form.productId) { toast.error("Selecione o produto"); return; }
+      if (!form.quantity || form.quantity <= 0) { toast.error("Informe a quantidade"); return; }
+      if (!form.unitPrice || form.unitPrice <= 0) { toast.error("Informe o valor unitário"); return; }
+    }
     setSaving(true);
     try {
-      const res = await fetch("/api/financial/movements", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, amount: Number(form.amount) }) });
+      let payload: any = { ...form };
+      if (form.category === "EXTRA") {
+        payload.type = "DEBIT";
+        payload.amount = Number(form.quantity) * Number(form.unitPrice);
+        const prod = products.find(p => p.id === form.productId);
+        payload.unit = prod?.unit ?? "";
+      } else {
+        payload.amount = Number(form.amount);
+      }
+      const res = await fetch("/api/financial/movements", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? "Erro"); return; }
-      toast.success("Movimentação registrada!"); setModal(null); load();
+      toast.success(form.category === "EXTRA" ? "Saída extra registrada! Estoque atualizado." : "Movimentação registrada!");
+      setModal(null);
+      load();
     } finally { setSaving(false); }
   }
 
@@ -63,6 +93,9 @@ export default function FinancialPage() {
     Gasto: p.spent,
     Saldo: Math.max(p.balance, 0),
   }));
+
+  const mainMovements = movements.filter((m) => m.category !== "EXTRA");
+  const extraMovements = movements.filter((m) => m.category === "EXTRA");
 
   return (
     <div>
@@ -123,7 +156,7 @@ export default function FinancialPage() {
             <div className="px-5 py-4 border-b border-slate-100">
               <h3 className="text-sm font-semibold text-slate-700">Histórico de Movimentações</h3>
             </div>
-            {movements.length === 0 ? (
+            {mainMovements.length === 0 ? (
               <EmptyState title="Nenhuma movimentação" description="Registre créditos e débitos." />
             ) : (
               <Table>
@@ -139,7 +172,7 @@ export default function FinancialPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {movements.map((m) => (
+                  {mainMovements.map((m) => (
                     <tr key={m.id} className="hover:bg-slate-50">
                       <Td>{formatDate(m.date)}</Td>
                       <Td>
@@ -171,6 +204,51 @@ export default function FinancialPage() {
               </Table>
             )}
           </div>
+
+          {/* Memorando — Saídas Extras */}
+          {extraMovements.length > 0 && (
+            <div className="bg-amber-50 rounded-xl border border-amber-200 shadow-sm mt-4">
+              <div className="px-5 py-4 border-b border-amber-200">
+                <div className="flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-amber-700" />
+                  <h3 className="text-sm font-semibold text-amber-800">Memorando — Saídas Extras ({extraMovements.length})</h3>
+                </div>
+                <p className="text-xs text-amber-600 mt-0.5">Saídas fora da movimentação normal. Produto abatido do estoque e valor debitado do orçamento.</p>
+              </div>
+              <Table>
+                <thead>
+                  <tr>
+                    <Th>Data</Th>
+                    <Th>Programa</Th>
+                    <Th>Produto</Th>
+                    <Th>Qtd.</Th>
+                    <Th>Descrição</Th>
+                    <Th>Referência</Th>
+                    <Th>Valor</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {extraMovements.map((m) => (
+                    <tr key={m.id} className="hover:bg-amber-50/70">
+                      <Td>{formatDate(m.date)}</Td>
+                      <Td>
+                        {m.program && (
+                          <Badge color={m.program.type === "MERENDA" ? "green" : m.program.type === "MANUTENCAO" ? "blue" : "purple"}>
+                            {m.program.name}
+                          </Badge>
+                        )}
+                      </Td>
+                      <Td className="font-medium text-slate-700">{m.product?.name ?? "—"}</Td>
+                      <Td className="text-slate-600">{m.quantity != null ? `${m.quantity} ${m.product?.unit ?? ""}` : "—"}</Td>
+                      <Td>{m.description}</Td>
+                      <Td className="text-slate-400 text-xs">{m.reference ?? "—"}</Td>
+                      <Td className="font-semibold text-red-600">-{formatCurrency(m.amount)}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            </div>
+          )}
         </>
       )}
 
@@ -197,19 +275,22 @@ export default function FinancialPage() {
           {/* Categoria da movimentação */}
           <div>
             <label className="text-xs text-slate-500 mb-1 block">Categoria *</label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               {([
                 { value: "NORMAL",         label: "Normal",          desc: "Repasse ou gasto regular" },
                 { value: "SALDO_ANTERIOR", label: "Saldo Anterior",   desc: "Saldo de ano/período anterior" },
-                { value: "DIVIDA",         label: "Divida Anterior",  desc: "Divida ou passivo de período anterior" },
+                { value: "DIVIDA",         label: "Dívida Anterior",  desc: "Dívida ou passivo de período anterior" },
+                { value: "EXTRA",          label: "Saída Extra",      desc: "Abate produto do estoque + financeiro" },
               ] as const).map((opt) => (
                 <button
                   key={opt.value}
                   type="button"
-                  onClick={() => setForm({ ...form, category: opt.value })}
+                  onClick={() => setForm({ ...form, category: opt.value, type: opt.value === "EXTRA" ? "DEBIT" : form.type, productId: "", quantity: 0, unitPrice: 0 })}
                   className={`text-left px-3 py-2.5 rounded-xl border-2 transition-colors ${
                     form.category === opt.value
-                      ? opt.value === "DIVIDA"
+                      ? opt.value === "EXTRA"
+                        ? "border-rose-400 bg-rose-50"
+                        : opt.value === "DIVIDA"
                         ? "border-orange-400 bg-orange-50"
                         : opt.value === "SALDO_ANTERIOR"
                         ? "border-blue-400 bg-blue-50"
@@ -224,10 +305,38 @@ export default function FinancialPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <Select label="Tipo *" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} options={[{ value: "CREDIT", label: "Crédito (entrada)" }, { value: "DEBIT", label: "Débito (saída)" }]} />
-            <Input label="Valor (R$) *" type="number" min={0} step={0.01} value={form.amount} onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })} />
-          </div>
+          {form.category === "EXTRA" ? (
+            <>
+              <div>
+                <label className="text-xs text-slate-500 mb-1 block">Produto a abater *</label>
+                <select
+                  value={form.productId}
+                  onChange={(e) => setForm({ ...form, productId: e.target.value })}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">— Selecione o produto —</option>
+                  {products.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name} ({p.unit})</option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <Input label="Quantidade *" type="number" min={0} step={0.001} value={form.quantity || ""} onChange={(e) => setForm({ ...form, quantity: Number(e.target.value) })} />
+                <Input label="Valor unitário (R$) *" type="number" min={0} step={0.01} value={form.unitPrice || ""} onChange={(e) => setForm({ ...form, unitPrice: Number(e.target.value) })} />
+              </div>
+              {form.quantity > 0 && form.unitPrice > 0 && (
+                <div className="bg-rose-50 border border-rose-200 rounded-lg px-4 py-3 flex items-center justify-between">
+                  <span className="text-sm text-rose-700">Total a debitar do orçamento e do estoque:</span>
+                  <span className="text-base font-bold text-rose-700">{formatCurrency(form.quantity * form.unitPrice)}</span>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="grid grid-cols-2 gap-4">
+              <Select label="Tipo *" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} options={[{ value: "CREDIT", label: "Crédito (entrada)" }, { value: "DEBIT", label: "Débito (saída)" }]} />
+              <Input label="Valor (R$) *" type="number" min={0} step={0.01} value={form.amount} onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })} />
+            </div>
+          )}
           <Input label="Descrição *" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
           <div className="grid grid-cols-2 gap-4">
             <Input label="Referência (empenho, processo)" value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} />

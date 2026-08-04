@@ -149,6 +149,7 @@ model Product {
   exitItems          ExitItem[]
   adjustments        StockAdjustment[]
   deliveryOrderItems DeliveryOrderItem[]
+  budgetExtras       BudgetMovement[]    @relation("BudgetExtra")
 }
 
 // ─────────────────────────────────────────────
@@ -233,11 +234,16 @@ model BudgetMovement {
   programId   String
   program     Program  @relation(fields: [programId], references: [id])
   type        String   // CREDIT | DEBIT
-  category    String   @default("NORMAL") // NORMAL | SALDO_ANTERIOR | DIVIDA
+  category    String   @default("NORMAL") // NORMAL | SALDO_ANTERIOR | DIVIDA | EXTRA
   amount      Float
   description String
   reference   String?
   date        DateTime
+  // Para catégoria EXTRA: produto abatido do estoque
+  productId   String?
+  product     Product? @relation("BudgetExtra", fields: [productId], references: [id])
+  quantity    Float?
+  unit        String?
 
   createdAt DateTime @default(now())
 }
