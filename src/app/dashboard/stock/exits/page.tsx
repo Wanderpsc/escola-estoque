@@ -19,6 +19,7 @@ const EMPTY_FORM = {
   exitDate: new Date().toISOString().split("T")[0],
   reason: "CONSUMO", observations: "",
   isExtra: false,
+  nfEntryId: "",
 };
 
 export default function StockExitsPage() {
@@ -31,18 +32,18 @@ export default function StockExitsPage() {
   const [editMeta, setEditMeta] = useState({ exitDate: "", reason: "CONSUMO", observations: "" });
   const [editItems, setEditItems] = useState<Array<{ id: string; quantity: string; unitPrice: string }>>([]);
   const [pendingAction, setPendingAction] = useState<{ label: string; fn: () => void } | null>(null);
-  const [programs, setPrograms] = useState<Array<{ id: string; name: string; type: string }>>([]);
-  const [balance, setBalance] = useState<Array<{ id: string; name: string; unit: string; balance: number; avgPrice: number; programId?: string; program: { type: string } }>>([]);
+  const [programs, setPrograms] = useState<Array<{ id: string; name: string; type: string }>>([]);  const [entries, setEntries] = useState<Array<{ id: string; invoiceNumber: string; invoiceDate: string; totalValue: number; programId: string; supplier: { name: string } }>>([])  const [balance, setBalance] = useState<Array<{ id: string; name: string; unit: string; balance: number; avgPrice: number; programId?: string; program: { type: string } }>>([]);
   const [form, setForm] = useState(EMPTY_FORM);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [eRes, prRes, bRes] = await Promise.all([
-      fetch("/api/stock/exits"), fetch("/api/programs"), fetch("/api/stock/balance"),
+    const [eRes, prRes, bRes, enRes] = await Promise.all([
+      fetch("/api/stock/exits"), fetch("/api/programs"), fetch("/api/stock/balance"), fetch("/api/stock/entries"),
     ]);
     if (eRes.ok) setExits(await eRes.json());
     if (prRes.ok) setPrograms(await prRes.json());
     if (bRes.ok) setBalance(await bRes.json());
+    if (enRes.ok) setEntries(await enRes.json());
     setLoading(false);
   }, []);
 
@@ -79,7 +80,9 @@ export default function StockExitsPage() {
           programId: form.programId,
           exitDate: form.exitDate,
           reason: form.reason,
-          observations: form.observations,
+          observations: form.isExtra && form.nfEntryId
+            ? `[NF Ref.: ${entries.find(e => e.id === form.nfEntryId)?.invoiceNumber ?? form.nfEntryId}] ${form.observations}`.trim()
+            : form.observations,
           isExtra: form.isExtra,
           items: [{ productId: form.productId, quantity: Number(form.quantity), unitPrice: Number(form.unitPrice) }],
         }),
@@ -260,13 +263,40 @@ export default function StockExitsPage() {
               type="checkbox"
               className="mt-0.5 rounded border-slate-300 text-orange-500"
               checked={form.isExtra}
-              onChange={(e) => setForm({ ...form, isExtra: e.target.checked })}
+              onChange={(e) => setForm({ ...form, isExtra: e.target.checked, nfEntryId: "" })}
             />
             <div>
               <p className="text-sm font-semibold text-slate-700">Saída Extra <span className="font-normal text-orange-600">(produto sem NF)</span></p>
               <p className="text-xs text-slate-400 leading-tight">Marca a saída como extra e cria automaticamente um débito no orçamento do programa.</p>
             </div>
           </label>
+          {form.isExtra && (
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">
+                NF de Referência <span className="text-slate-400">(opcional — nota fiscal cujo recurso foi utilizado)</span>
+              </label>
+              <select
+                value={form.nfEntryId}
+                onChange={(e) => setForm({ ...form, nfEntryId: e.target.value })}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+              >
+                <option value="">— Nenhuma (apenas debita o orçamento) —</option>
+                {entries
+                  .filter(e => !form.programId || e.programId === form.programId)
+                  .map(e => (
+                    <option key={e.id} value={e.id}>
+                      NF {e.invoiceNumber} — {e.supplier.name} — {new Date(e.invoiceDate).toLocaleDateString("pt-BR")}
+                    </option>
+                  ))
+                }
+              </select>
+              {form.nfEntryId && (
+                <p className="text-xs text-orange-600 mt-1">
+                  O valor extra será debitado do orçamento do programa vinculado a essa NF.
+                </p>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
           <Button variant="secondary" onClick={() => { setModal(false); setForm(EMPTY_FORM); }}>Cancelar</Button>
