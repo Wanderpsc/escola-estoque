@@ -297,7 +297,7 @@ export default function StockEntriesPage() {
       </Modal>
 
       {scanningRowIndex !== null && (
-        <BarcodeScanner title={`Escanear produto � linha ${scanningRowIndex + 1}`} onDetected={(code) => handleBarcodeDetected(code, scanningRowIndex)} onClose={() => setScanningRowIndex(null)} />
+        <BarcodeScanner title={`Escanear produto \u2014 linha ${scanningRowIndex + 1}`} onDetected={(code) => handleBarcodeDetected(code, scanningRowIndex)} onClose={() => setScanningRowIndex(null)} />
       )}
 
       {pendingAction && (
