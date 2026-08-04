@@ -146,7 +146,7 @@ function NewDeliveryModal({
               onChange={(e) => setForm((f) => ({ ...f, programId: e.target.value }))}
               className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <option value="">� Nenhum �</option>
+              <option value="">— Nenhum —</option>
               {programs.map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
@@ -169,7 +169,7 @@ function NewDeliveryModal({
             rows={2}
             value={form.notes}
             onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-            placeholder="Ex: Entrega parcial � faltam 10kg de arroz"
+            placeholder="Ex: Entrega parcial — faltam 10kg de arroz"
             className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
           />
         </div>
@@ -317,7 +317,7 @@ function ConfirmModal({
   });
 
   return (
-    <Modal open title={`Confirmar Entrega � ${order.supplier.name}`} onClose={onClose} size="lg">
+    <Modal open title={`Confirmar Entrega — ${order.supplier.name}`} onClose={onClose} size="lg">
       <div className="space-y-4">
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-sm text-blue-800">
           Informe a quantidade <strong>realmente recebida</strong> de cada produto.
@@ -370,7 +370,7 @@ function ConfirmModal({
               const notDelivered = i.quantityOrdered - Number(quantities[i.id] ?? 0);
               return (
                 <p key={i.id} className="text-xs text-orange-700">
-                  � {i.product.name}: faltam <strong>{notDelivered.toFixed(2)} {i.product.unit}</strong>
+                  • {i.product.name}: faltam <strong>{notDelivered.toFixed(2)} {i.product.unit}</strong>
                 </p>
               );
             })}
@@ -595,7 +595,7 @@ function OrderCard({ order, canConfirm, onRefresh }: { order: DeliveryOrder; can
   const [pendingAction, setPendingAction] = useState<{ label: string; fn: () => void } | null>(null);
 
   const canEdit = canConfirm && order.status === "PENDING";
-  const canDelete = canConfirm && ["PENDING", "CANCELLED"].includes(order.status);
+  const canDelete = canConfirm;
 
   function requestCancel() {
     setPendingAction({
@@ -609,11 +609,15 @@ function OrderCard({ order, canConfirm, onRefresh }: { order: DeliveryOrder; can
   }
 
   function requestDelete() {
+    const isConfirmed = ["CONFIRMED", "PARTIAL"].includes(order.status);
+    const label = isConfirmed
+      ? `excluir e REVERTER a entrega confirmada de ${order.supplier.name} (estoque e financeiro serão desfeitos)`
+      : `excluir permanentemente a entrega de ${order.supplier.name}`;
     setPendingAction({
-      label: `excluir permanentemente a entrega de ${order.supplier.name}`,
+      label,
       fn: async () => {
         const res = await fetch(`/api/deliveries/${order.id}`, { method: "DELETE" });
-        if (res.ok) { toast.success("Entrega excluída."); onRefresh(); }
+        if (res.ok) { toast.success(isConfirmed ? "Entrega excluída e estoque revertido." : "Entrega excluída."); onRefresh(); }
         else {
           const err = await res.json();
           toast.error(err.error ?? "Erro ao excluir.");
@@ -645,9 +649,9 @@ function OrderCard({ order, canConfirm, onRefresh }: { order: DeliveryOrder; can
               </div>
               <p className="text-xs text-slate-500">
                 {new Date(order.deliveryDate).toLocaleString("pt-BR")}
-                {order.program && ` � ${order.program.name}`}
-                {" � "}{order.items.length} produto(s)
-                {" � "}<span className="font-medium text-slate-700">{formatCurrency(totalOrdered)}</span>
+                {order.program && ` · ${order.program.name}`}
+                {" · "}{order.items.length} produto(s)
+                {" · "}<span className="font-medium text-slate-700">{formatCurrency(totalOrdered)}</span>
               </p>
             </div>
           </div>
@@ -709,10 +713,10 @@ function OrderCard({ order, canConfirm, onRefresh }: { order: DeliveryOrder; can
                       <Td className="font-mono text-xs text-slate-400">{item.product.ncmCode}</Td>
                       <Td>{item.quantityOrdered} {item.product.unit}</Td>
                       <Td className={item.quantityDelivered !== null ? "text-green-700 font-medium" : "text-slate-400"}>
-                        {item.quantityDelivered !== null ? `${item.quantityDelivered} ${item.product.unit}` : "�"}
+                        {item.quantityDelivered !== null ? `${item.quantityDelivered} ${item.product.unit}` : "—"}
                       </Td>
                       <Td className={pending !== null && pending > 0 ? "text-orange-600 font-medium" : "text-slate-400"}>
-                        {pending !== null ? (pending > 0 ? `${pending.toFixed(2)} ${item.product.unit}` : "0") : "�"}
+                        {pending !== null ? (pending > 0 ? `${pending.toFixed(2)} ${item.product.unit}` : "0") : "—"}
                       </Td>
                       <Td>{formatCurrency(item.unitPrice)}</Td>
                       <Td className="font-medium">{formatCurrency(item.totalPrice)}</Td>
@@ -750,7 +754,7 @@ function OrderCard({ order, canConfirm, onRefresh }: { order: DeliveryOrder; can
                 <p className="text-xs font-semibold text-orange-800 mb-1">Mercadorias nao entregues:</p>
                 {notDeliveredItems.map((i) => (
                   <p key={i.id} className="text-xs text-orange-700">
-                    � {i.product.name}: {(i.quantityOrdered - (i.quantityDelivered ?? 0)).toFixed(2)} {i.product.unit}
+                    • {i.product.name}: {(i.quantityOrdered - (i.quantityDelivered ?? 0)).toFixed(2)} {i.product.unit}
                     ({formatCurrency((i.quantityOrdered - (i.quantityDelivered ?? 0)) * i.unitPrice)})
                   </p>
                 ))}
@@ -786,7 +790,7 @@ function OrderCard({ order, canConfirm, onRefresh }: { order: DeliveryOrder; can
   );
 }
 
-// --- P�gina Principal --------------------------------------------------------
+// --- Página Principal --------------------------------------------------------
 export default function DeliveriesPage() {
   const { data: session } = useSession();
   const [orders, setOrders] = useState<DeliveryOrder[]>([]);
@@ -874,7 +878,7 @@ export default function DeliveriesPage() {
           <AlertTriangle className="w-5 h-5 text-yellow-600 shrink-0" />
           <div>
             <p className="text-sm font-semibold text-yellow-800">
-              {pending} entrega(s) aguardando confirmacao � {partial} parcial(is)
+              {pending} entrega(s) aguardando confirmacao · {partial} parcial(is)
             </p>
             <p className="text-xs text-yellow-700">
               Confirme as entregas para atualizar o estoque e debitar o orcamento dos programas.

@@ -217,7 +217,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   return NextResponse.json(updated);
 }
 
-// DELETE /api/deliveries/[id] — exclui entrega PENDING ou CANCELLED
+// DELETE /api/deliveries/[id] — exclui entrega de qualquer status; reverte estoque/financeiro se CONFIRMED/PARTIAL
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
@@ -237,11 +237,11 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
   }
 
-  if (!["PENDING", "CANCELLED"].includes(order.status)) {
-    return NextResponse.json(
-      { error: "Apenas entregas pendentes ou canceladas podem ser excluídas" },
-      { status: 400 }
-    );
+  // Para entregas confirmadas/parciais: reverter StockEntry e BudgetMovement criados na confirmação
+  if (["CONFIRMED", "PARTIAL"].includes(order.status)) {
+    const ref = `DEL-${id.slice(-8).toUpperCase()}`;
+    await db.stockEntry.deleteMany({ where: { invoiceNumber: ref } });
+    await db.budgetMovement.deleteMany({ where: { reference: ref } });
   }
 
   await db.deliveryOrder.delete({ where: { id } });
