@@ -26,6 +26,7 @@ export async function GET(req: NextRequest) {
 
   const where: any = role === "SUPER_ADMIN" ? {} : { program: { schoolId: schoolId ?? "" } };
 
+  const url  = new URL(req.url);
   const from = url.searchParams.get("from");
   const to   = url.searchParams.get("to");
   if (from || to) {
