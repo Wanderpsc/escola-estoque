@@ -9,6 +9,7 @@ import { toast } from "sonner";
 
 interface Balance {
   id: string; name: string; unit: string; ncmCode: string; minStock: number;
+  programId: string;
   balance: number; totalIn: number; totalOut: number; totalAdjusted: number;
   avgPrice: number; totalValue: number;
   status: "OK" | "LOW" | "ZERO";
@@ -237,6 +238,7 @@ export default function StockBalancePage() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"ALL" | "OK" | "LOW" | "ZERO">("ALL");
+  const [programFilter, setProgramFilter] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<Balance | null>(null);
 
   const load = useCallback(async () => {
@@ -252,8 +254,11 @@ export default function StockBalancePage() {
 
   const filtered = items.filter((i) =>
     (filter === "ALL" || i.status === filter) &&
+    (!programFilter || i.programId === programFilter) &&
     (i.name.toLowerCase().includes(search.toLowerCase()) || i.ncmCode.includes(search))
   );
+
+  const uniquePrograms = [...new Map(items.map(i => [i.programId, { id: i.programId, name: i.program?.name ?? "", type: i.program?.type ?? "" }])).values()];
 
   const totalValue = filtered.reduce((s, i) => s + i.totalValue, 0);
   const counts = {
@@ -295,6 +300,12 @@ export default function StockBalancePage() {
             className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-sm bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
+        {uniquePrograms.length > 1 && (
+          <select value={programFilter} onChange={(e) => setProgramFilter(e.target.value)} className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white">
+            <option value="">Todos os programas</option>
+            {uniquePrograms.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        )}
         <div className="flex gap-1 bg-slate-100 p-1 rounded-lg">
           {(["ALL", "OK", "LOW", "ZERO"] as const).map((f) => (
             <button key={f} onClick={() => setFilter(f)} className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${filter === f ? "bg-white shadow text-slate-800" : "text-slate-500"}`}>

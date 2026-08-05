@@ -20,6 +20,12 @@ export default function ReportsPage() {
   const [generating, setGenerating] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [programs, setPrograms] = useState<Array<{ id: string; name: string; type: string }>>([]);
+  const [reportProgramId, setReportProgramId] = useState("");
+
+  useEffect(() => {
+    fetch("/api/programs").then((r) => r.ok ? r.json() : []).then(setPrograms);
+  }, []);
 
   // Custom header/logo settings
   const [schoolData, setSchoolData] = useState<{ id: string; logoUrl: string | null; customHeader: string | null } | null>(null);
@@ -72,6 +78,7 @@ export default function ReportsPage() {
       const p = new URLSearchParams();
       if (dateFrom) p.set("from", dateFrom);
       if (dateTo)   p.set("to",   dateTo);
+      if (reportProgramId) p.set("programId", reportProgramId);
       const q  = p.toString();
       const qs = q ? `&${q}` : "";
       const endpoints: Record<ReportType, string> = {
@@ -411,7 +418,13 @@ export default function ReportsPage() {
             <button key={s.label} onClick={s.fn} className="text-xs px-2.5 py-1 rounded-lg bg-white border border-slate-200 hover:border-blue-400 hover:text-blue-600 text-slate-600">{s.label}</button>
           ))}
         </div>
-        {(dateFrom || dateTo) && <span className="text-xs text-blue-600 ml-auto">{dateFrom || "⋯"} → {dateTo || "⋯"}</span>}
+        {programs.length > 0 && (
+          <select value={reportProgramId} onChange={(e) => { setReportProgramId(e.target.value); setData(null); }} className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 ml-auto">
+            <option value="">Todos os programas</option>
+            {programs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        )}
+        {(dateFrom || dateTo) && <span className="text-xs text-blue-600">{dateFrom || "⋯"} → {dateTo || "⋯"}</span>}
       </div>
 
       <div className="flex gap-3 mb-6">

@@ -42,6 +42,7 @@ export async function GET(req: NextRequest) {
       unit: p.unit,
       ncmCode: p.ncmCode,
       minStock: p.minStock,
+      programId: p.programId,
       program: p.program,
       totalIn,
       totalOut,

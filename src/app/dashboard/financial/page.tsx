@@ -118,6 +118,16 @@ export default function FinancialPage() {
   const mainMovements = movements.filter((m) => m.category !== "EXTRA");
   const extraMovements = movements.filter((m) => m.category === "EXTRA");
 
+  // Consolidated totals across all programs
+  const totalBudgetAll = programStats.reduce((s, p) => s + p.totalBudget, 0);
+  const totalSpentAll  = programStats.reduce((s, p) => s + p.spent, 0);
+  const totalBalanceAll = programStats.reduce((s, p) => s + p.balance, 0);
+
+  // Filter for the movements history
+  const [movFilterId, setMovFilterId] = useState("");
+  const filteredMain = mainMovements.filter(m => !movFilterId || m.programId === movFilterId);
+  const filteredExtra = extraMovements.filter(m => !movFilterId || m.programId === movFilterId);
+
   return (
     <div>
       <PageHeader title="Controle Financeiro" description="Orçamentos e movimentações por programa">
@@ -154,7 +164,29 @@ export default function FinancialPage() {
             ))}
           </div>
 
-          {/* Gráfico */}
+          {/* Consolidado Geral */}
+          {programStats.length > 1 && (
+            <div className="bg-slate-800 rounded-xl border border-slate-700 p-5 shadow-sm text-white mb-6">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">Consolidado — Todos os Programas</p>
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <span className="text-slate-400 block text-xs mb-0.5">Orçamento Total</span>
+                  <span className="font-bold text-lg">{formatCurrency(totalBudgetAll)}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-xs mb-0.5">Total Gasto</span>
+                  <span className="font-bold text-lg text-red-400">{formatCurrency(totalSpentAll)}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-xs mb-0.5">Saldo Disponível</span>
+                  <span className={`font-bold text-lg ${totalBalanceAll >= 0 ? "text-green-400" : "text-red-400"}`}>{formatCurrency(totalBalanceAll)}</span>
+                </div>
+              </div>
+              <div className="mt-3 w-full bg-slate-700 rounded-full h-1.5">
+                <div className={`h-1.5 rounded-full ${totalBudgetAll > 0 && totalSpentAll / totalBudgetAll > 0.9 ? "bg-red-400" : "bg-green-400"}`} style={{ width: `${totalBudgetAll > 0 ? Math.min((totalSpentAll / totalBudgetAll) * 100, 100) : 0}%` }} />
+              </div>
+            </div>
+          )}}
           {chartData.length > 0 && (
             <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm mb-6">
               <h3 className="text-sm font-semibold text-slate-700 mb-4">Visão Financeira por Programa</h3>
@@ -174,10 +206,16 @@ export default function FinancialPage() {
 
           {/* Histórico de movimentações */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
-            <div className="px-5 py-4 border-b border-slate-100">
-              <h3 className="text-sm font-semibold text-slate-700">Histórico de Movimentações</h3>
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-4">
+              <h3 className="text-sm font-semibold text-slate-700 shrink-0">Histórico de Movimentações</h3>
+              {programs.length > 1 && (
+                <select value={movFilterId} onChange={(e) => setMovFilterId(e.target.value)} className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 ml-auto">
+                  <option value="">Todos os programas</option>
+                  {programs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              )}
             </div>
-            {mainMovements.length === 0 ? (
+            {filteredMain.length === 0 ? (
               <EmptyState title="Nenhuma movimentação" description="Registre créditos e débitos." />
             ) : (
               <Table>
@@ -193,7 +231,7 @@ export default function FinancialPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {mainMovements.map((m) => (
+                  {filteredMain.map((m) => (
                     <tr key={m.id} className="hover:bg-slate-50">
                       <Td>{formatDate(m.date)}</Td>
                       <Td>
@@ -227,7 +265,7 @@ export default function FinancialPage() {
           </div>
 
           {/* Memorando — Saídas Extras */}
-          {extraMovements.length > 0 && (
+          {filteredExtra.length > 0 && (
             <div className="bg-amber-50 rounded-xl border border-amber-200 shadow-sm mt-4">
               <div className="px-5 py-4 border-b border-amber-200">
                 <div className="flex items-center gap-2">
@@ -249,7 +287,7 @@ export default function FinancialPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {extraMovements.map((m) => (
+                  {filteredExtra.map((m) => (
                     <tr key={m.id} className="hover:bg-amber-50/70">
                       <Td>{formatDate(m.date)}</Td>
                       <Td>
