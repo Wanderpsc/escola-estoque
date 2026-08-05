@@ -12,6 +12,7 @@ interface Product { id: string; name: string; unit: string }
 interface Movement {
   id: string; type: "CREDIT" | "DEBIT"; category: string; amount: number;
   description: string; reference?: string; date: string;
+  programId: string;
   program: { name: string; type: string };
   product?: { name: string; unit: string } | null;
   quantity?: number | null;
@@ -21,7 +22,7 @@ export default function FinancialPage() {
   const [programs, setPrograms] = useState<Program[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [movements, setMovements] = useState<Movement[]>([]);
-  const [entries, setEntries] = useState<Array<{ totalValue: number; programId: string }>>([])
+  const [entries, setEntries] = useState<Array<{ totalValue: number; programId: string; isPurchase: boolean; invoiceNumber: string }>>([])  
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<"budget" | "movement" | null>(null);
   const [saving, setSaving] = useState(false);
@@ -93,16 +94,23 @@ export default function FinancialPage() {
   }
 
   const programStats = programs.map((p) => {
-    const spent = entries.filter((e) => e.programId === p.id).reduce((s, e) => s + e.totalValue, 0);
-    const credits = movements.filter((m) => m.program && programs.find((pr) => pr.id === form.programId)?.id === p.id && m.type === "CREDIT").reduce((s, m) => s + m.amount, 0);
-    const balance = p.budget - spent;
-    const pct = p.budget > 0 ? (spent / p.budget) * 100 : 0;
-    return { ...p, spent, balance, pct };
+    // Regular NF entries only — informal purchases and delivery entries are tracked via BudgetMovements
+    const nfSpent = entries
+      .filter(e => e.programId === p.id && !e.isPurchase && !e.invoiceNumber.startsWith("DEL-"))
+      .reduce((s, e) => s + e.totalValue, 0);
+    const progMovements = movements.filter(m => m.programId === p.id);
+    const creditAmount = progMovements.filter(m => m.type === "CREDIT").reduce((s, m) => s + m.amount, 0);
+    const debitAmount  = progMovements.filter(m => m.type === "DEBIT").reduce((s, m) => s + m.amount, 0);
+    const totalBudget = p.budget + creditAmount;
+    const spent = nfSpent + debitAmount;
+    const balance = totalBudget - spent;
+    const pct = totalBudget > 0 ? (spent / totalBudget) * 100 : 0;
+    return { ...p, totalBudget, spent, balance, pct };
   });
 
   const chartData = programStats.map((p) => ({
     name: p.name.length > 10 ? p.name.slice(0, 10) + "…" : p.name,
-    Orçamento: p.budget,
+    Orçamento: p.totalBudget,
     Gasto: p.spent,
     Saldo: Math.max(p.balance, 0),
   }));
@@ -135,7 +143,7 @@ export default function FinancialPage() {
                 </div>
                 <h3 className="font-semibold text-slate-800 mb-3">{p.name}</h3>
                 <div className="space-y-1 text-sm">
-                  <div className="flex justify-between"><span className="text-slate-500">Orçamento</span><span className="font-semibold">{formatCurrency(p.budget)}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Orçamento</span><span className="font-semibold">{formatCurrency(p.totalBudget)}</span></div>
                   <div className="flex justify-between"><span className="text-slate-500">Gasto</span><span className="font-semibold text-red-600">{formatCurrency(p.spent)}</span></div>
                   <div className="flex justify-between border-t border-slate-100 pt-1 mt-1"><span className="text-slate-600 font-medium">Saldo</span><span className={`font-bold ${p.balance >= 0 ? "text-green-700" : "text-red-700"}`}>{formatCurrency(p.balance)}</span></div>
                 </div>

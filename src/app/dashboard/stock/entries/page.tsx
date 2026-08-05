@@ -2,18 +2,19 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, X, Barcode } from "lucide-react";
+import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, X, Barcode, ArrowDownToLine } from "lucide-react";
 import { PageHeader, Button, Badge, Modal, Input, Select, EmptyState, Table, Th, Td } from "@/components/ui";
 import { formatCurrency, formatDate, PROGRAM_TYPES } from "@/lib/utils";
 import BarcodeScanner from "@/components/BarcodeScanner";
 import PasswordConfirmModal from "@/components/PasswordConfirmModal";
 
-interface EntryItem { id: string; quantity: number; unitPrice: number; totalPrice: number; lot?: string; product: { name: string; unit: string } }
+interface EntryItem { id: string; productId: string; quantity: number; unitPrice: number; totalPrice: number; lot?: string; product: { name: string; unit: string } }
 interface Entry {
-  id: string; invoiceNumber: string; invoiceDate: string; totalValue: number; observations?: string;
+  id: string; programId: string; invoiceNumber: string; invoiceDate: string; totalValue: number; observations?: string;
   supplier: { id: string; name: string }; program: { id: string; name: string; type: string };
   user: { name: string }; items: EntryItem[];
 }
+interface BaixaItemState { productId: string; productName: string; productUnit: string; unitPrice: number; programId: string }
 
 interface ItemRow { productId: string; quantity: string; unitPrice: string; lot: string }
 const EMPTY_HEADER = { programId: "", supplierId: "", invoiceNumber: "", invoiceDate: new Date().toISOString().split("T")[0], observations: "" };
@@ -39,6 +40,10 @@ export default function StockEntriesPage() {
 
   // Password confirm state
   const [pendingAction, setPendingAction] = useState<{ label: string; fn: () => void } | null>(null);
+
+  // Baixa manual state
+  const [baixaItem, setBaixaItem] = useState<BaixaItemState | null>(null);
+  const [baixaForm, setBaixaForm] = useState({ quantity: "1", reason: "CONSUMO", exitDate: new Date().toISOString().split("T")[0], observations: "", debitBudget: false });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -136,6 +141,30 @@ export default function StockEntriesPage() {
     });
   }
 
+  async function handleBaixaManual() {
+    if (!baixaItem) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/stock/exits", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          exitDate: baixaForm.exitDate,
+          reason: baixaForm.reason,
+          programId: baixaItem.programId,
+          observations: baixaForm.observations || `Baixa manual — ${baixaItem.productName}`,
+          isExtra: baixaForm.debitBudget,
+          items: [{ productId: baixaItem.productId, quantity: Number(baixaForm.quantity), unitPrice: baixaItem.unitPrice }],
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error ?? "Erro ao registrar baixa"); return; }
+      toast.success(`Baixa de ${baixaForm.quantity} ${baixaItem.productUnit} registrada!`);
+      setBaixaItem(null);
+      load();
+    } finally { setSaving(false); }
+  }
+
   return (
     <div>
       <PageHeader title="Entradas de Estoque" description="Registre e gerencie entradas de produtos por nota fiscal">
@@ -183,7 +212,7 @@ export default function StockEntriesPage() {
                   <div className="border-t border-slate-100 px-4 pb-3">
                     {entry.observations && <p className="text-xs text-slate-400 italic mt-2 mb-1">Obs: {entry.observations}</p>}
                     <Table>
-                      <thead><tr><Th>Produto</Th><Th>Qtd</Th><Th>Vl. Unit.</Th><Th>Total</Th></tr></thead>
+                      <thead><tr><Th>Produto</Th><Th>Qtd</Th><Th>Vl. Unit.</Th><Th>Total</Th><Th></Th></tr></thead>
                       <tbody>
                         {entry.items.map((item) => (
                           <tr key={item.id} className="hover:bg-slate-50">
@@ -191,6 +220,18 @@ export default function StockEntriesPage() {
                             <Td>{item.quantity.toFixed(2)} {item.product.unit}</Td>
                             <Td>{formatCurrency(item.unitPrice)}</Td>
                             <Td className="font-semibold text-green-700">{formatCurrency(item.totalPrice)}</Td>
+                            <Td>
+                              <button
+                                onClick={() => {
+                                  setBaixaItem({ productId: item.productId, productName: item.product.name, productUnit: item.product.unit, unitPrice: item.unitPrice, programId: entry.programId });
+                                  setBaixaForm({ quantity: "1", reason: "CONSUMO", exitDate: new Date().toISOString().split("T")[0], observations: "", debitBudget: false });
+                                }}
+                                className="p-1.5 rounded-lg text-slate-400 hover:bg-amber-50 hover:text-amber-600"
+                                title="Baixa manual"
+                              >
+                                <ArrowDownToLine className="w-4 h-4" />
+                              </button>
+                            </Td>
                           </tr>
                         ))}
                       </tbody>
@@ -307,6 +348,56 @@ export default function StockEntriesPage() {
           onClose={() => setPendingAction(null)}
         />
       )}
+
+      {/* Modal baixa manual */}
+      <Modal open={!!baixaItem} onClose={() => setBaixaItem(null)} title={`Baixa Manual — ${baixaItem?.productName ?? ""}`}>
+        {baixaItem && (
+          <div className="space-y-4">
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800">
+              Registra uma saída de estoque para <strong>{baixaItem.productName}</strong>. Informe a quantidade e o motivo da baixa.
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <Input label="Quantidade *" type="number" step="0.001" min="0.001" value={baixaForm.quantity} onChange={(e) => setBaixaForm((f) => ({ ...f, quantity: e.target.value }))} />
+              <div className="flex flex-col justify-end pb-2 text-sm text-slate-500 gap-1">
+                <span>Unidade: <strong className="text-slate-700">{baixaItem.productUnit}</strong></span>
+                <span>Vl. Unit.: <strong className="text-slate-700">{formatCurrency(baixaItem.unitPrice)}</strong></span>
+              </div>
+            </div>
+            <Select
+              label="Motivo *"
+              value={baixaForm.reason}
+              onChange={(e) => setBaixaForm((f) => ({ ...f, reason: e.target.value }))}
+              options={[
+                { value: "CONSUMO", label: "Consumo" },
+                { value: "VENCIMENTO", label: "Vencimento" },
+                { value: "DOACAO", label: "Doação" },
+                { value: "PERDA", label: "Perda" },
+                { value: "OUTRO", label: "Outro" },
+              ]}
+            />
+            <Input label="Data da Baixa *" type="date" value={baixaForm.exitDate} onChange={(e) => setBaixaForm((f) => ({ ...f, exitDate: e.target.value }))} />
+            <Input label="Observações" value={baixaForm.observations} onChange={(e) => setBaixaForm((f) => ({ ...f, observations: e.target.value }))} placeholder={`Baixa manual — ${baixaItem.productName}`} />
+            <label className="flex items-center gap-2 cursor-pointer p-3 rounded-lg border border-slate-200 hover:bg-slate-50">
+              <input
+                type="checkbox"
+                checked={baixaForm.debitBudget}
+                onChange={(e) => setBaixaForm((f) => ({ ...f, debitBudget: e.target.checked }))}
+                className="rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+              />
+              <span className="text-sm text-slate-700">Também debitar do orçamento do programa</span>
+            </label>
+            {baixaForm.debitBudget && (
+              <p className="text-xs text-amber-700 bg-amber-50 px-3 py-2 rounded-lg border border-amber-200">
+                Valor a debitar: <strong>{formatCurrency(Number(baixaForm.quantity) * baixaItem.unitPrice)}</strong>
+              </p>
+            )}
+            <div className="flex justify-end gap-3 pt-2 border-t border-slate-100">
+              <Button variant="secondary" onClick={() => setBaixaItem(null)}>Cancelar</Button>
+              <Button onClick={handleBaixaManual} loading={saving}>Confirmar Baixa</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
