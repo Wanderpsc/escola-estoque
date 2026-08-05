@@ -26,6 +26,14 @@ export async function GET(req: NextRequest) {
 
   const where: any = role === "SUPER_ADMIN" ? {} : { program: { schoolId: schoolId ?? "" } };
 
+  const from = url.searchParams.get("from");
+  const to   = url.searchParams.get("to");
+  if (from || to) {
+    where.date = {};
+    if (from) where.date.gte = new Date(from);
+    if (to)   where.date.lte = new Date(to + "T23:59:59.999Z");
+  }
+
   const movements = await db.budgetMovement.findMany({
     where,
     include: {

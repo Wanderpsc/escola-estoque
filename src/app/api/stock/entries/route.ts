@@ -39,6 +39,14 @@ export async function GET(req: NextRequest) {
   if (purchases === "true") where.isPurchase = true;
   else if (purchases === "false") where.isPurchase = false;
 
+  const from = url.searchParams.get("from");
+  const to   = url.searchParams.get("to");
+  if (from || to) {
+    where.invoiceDate = {};
+    if (from) where.invoiceDate.gte = new Date(from);
+    if (to)   where.invoiceDate.lte = new Date(to + "T23:59:59.999Z");
+  }
+
   const entries = await db.stockEntry.findMany({
     where,
     include: {

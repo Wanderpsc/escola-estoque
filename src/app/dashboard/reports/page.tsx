@@ -18,6 +18,8 @@ export default function ReportsPage() {
   const [data, setData] = useState<any[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
   // Custom header/logo settings
   const [schoolData, setSchoolData] = useState<{ id: string; logoUrl: string | null; customHeader: string | null } | null>(null);
@@ -67,13 +69,18 @@ export default function ReportsPage() {
   async function generateReport() {
     setLoading(true);
     try {
+      const p = new URLSearchParams();
+      if (dateFrom) p.set("from", dateFrom);
+      if (dateTo)   p.set("to",   dateTo);
+      const q  = p.toString();
+      const qs = q ? `&${q}` : "";
       const endpoints: Record<ReportType, string> = {
-        balance: "/api/stock/balance",
-        entries: "/api/stock/entries",
-        exits: "/api/stock/exits",
-        financial: "/api/financial/movements",
-        extra_exits: "/api/stock/exits?extra=true",
-        purchases: "/api/stock/entries?purchases=true",
+        balance:    "/api/stock/balance",
+        entries:    q ? `/api/stock/entries?${q}` : "/api/stock/entries",
+        exits:      q ? `/api/stock/exits?${q}`   : "/api/stock/exits",
+        financial:  q ? `/api/financial/movements?${q}` : "/api/financial/movements",
+        extra_exits: `/api/stock/exits?extra=true${qs}`,
+        purchases:   `/api/stock/entries?purchases=true${qs}`,
       };
       const res = await fetch(endpoints[type]);
       if (res.ok) setData(await res.json());
@@ -382,6 +389,29 @@ export default function ReportsPage() {
             <p className="text-xs text-slate-400 mt-1">{r.desc}</p>
           </button>
         ))}
+      </div>
+
+      {/* Filtro de período */}
+      <div className="flex items-center gap-4 mb-4 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 flex-wrap">
+        <span className="text-xs font-semibold text-slate-500 shrink-0">Período:</span>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-slate-500">De</label>
+          <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setData(null); }} className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-slate-500">até</label>
+          <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setData(null); }} className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          {[
+            { label: "Este mês", fn: () => { const n = new Date(); setDateFrom(`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}-01`); setDateTo(n.toISOString().split("T")[0]); setData(null); } },
+            { label: "Este ano",  fn: () => { setDateFrom(`${new Date().getFullYear()}-01-01`); setDateTo(new Date().toISOString().split("T")[0]); setData(null); } },
+            { label: "Tudo",      fn: () => { setDateFrom(""); setDateTo(""); setData(null); } },
+          ].map((s) => (
+            <button key={s.label} onClick={s.fn} className="text-xs px-2.5 py-1 rounded-lg bg-white border border-slate-200 hover:border-blue-400 hover:text-blue-600 text-slate-600">{s.label}</button>
+          ))}
+        </div>
+        {(dateFrom || dateTo) && <span className="text-xs text-blue-600 ml-auto">{dateFrom || "⋯"} → {dateTo || "⋯"}</span>}
       </div>
 
       <div className="flex gap-3 mb-6">

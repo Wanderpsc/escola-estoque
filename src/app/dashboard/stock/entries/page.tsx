@@ -45,17 +45,21 @@ export default function StockEntriesPage() {
   const [baixaItem, setBaixaItem] = useState<BaixaItemState | null>(null);
   const [baixaForm, setBaixaForm] = useState({ quantity: "1", reason: "CONSUMO", exitDate: new Date().toISOString().split("T")[0], observations: "", debitBudget: false });
 
+  // List filter
+  const [filterProgramId, setFilterProgramId] = useState("");
+
   const load = useCallback(async () => {
     setLoading(true);
     const [eRes, sRes, prRes, pdRes] = await Promise.all([
-      fetch("/api/stock/entries"), fetch("/api/suppliers"), fetch("/api/programs"), fetch("/api/products"),
+      fetch(filterProgramId ? `/api/stock/entries?programId=${filterProgramId}` : "/api/stock/entries"),
+      fetch("/api/suppliers"), fetch("/api/programs"), fetch("/api/products"),
     ]);
     if (eRes.ok) setEntries(await eRes.json());
     if (sRes.ok) setSuppliers(await sRes.json());
     if (prRes.ok) setPrograms(await prRes.json());
     if (pdRes.ok) setProducts(await pdRes.json());
     setLoading(false);
-  }, []);
+  }, [filterProgramId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -170,6 +174,18 @@ export default function StockEntriesPage() {
       <PageHeader title="Entradas de Estoque" description="Registre e gerencie entradas de produtos por nota fiscal">
         <Button onClick={() => setModal(true)}><Plus className="w-4 h-4" />Nova Entrada (NF)</Button>
       </PageHeader>
+
+      {programs.length > 0 && (
+        <div className="flex items-center gap-3 mb-4 flex-wrap bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5">
+          <span className="text-xs font-semibold text-slate-500 shrink-0">Programa:</span>
+          <select value={filterProgramId} onChange={(e) => setFilterProgramId(e.target.value)} className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
+            <option value="">Todos</option>
+            {programs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          {filterProgramId && <button onClick={() => setFilterProgramId("")} className="text-xs text-slate-400 hover:text-red-500">× Limpar</button>}
+          <span className="text-xs text-slate-400 ml-auto">{entries.length} NF(s)</span>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex justify-center py-16"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>

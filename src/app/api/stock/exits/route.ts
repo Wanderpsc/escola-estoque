@@ -33,6 +33,14 @@ export async function GET(req: NextRequest) {
   if (programId) where.programId = programId;
   if (extra === "true") where.isExtra = true;
 
+  const from = url.searchParams.get("from");
+  const to   = url.searchParams.get("to");
+  if (from || to) {
+    where.exitDate = {};
+    if (from) where.exitDate.gte = new Date(from);
+    if (to)   where.exitDate.lte = new Date(to + "T23:59:59.999Z");
+  }
+
   const exits = await db.stockExit.findMany({
     where,
     include: {

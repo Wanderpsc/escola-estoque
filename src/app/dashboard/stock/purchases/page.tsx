@@ -30,10 +30,13 @@ export default function PurchasesPage() {
   const [header, setHeader] = useState(EMPTY_HEADER);
   const [items, setItems] = useState([{ ...EMPTY_ITEM }]);
 
+  // List filter
+  const [filterProgramId, setFilterProgramId] = useState("");
+
   const load = useCallback(async () => {
     setLoading(true);
     const [pRes, prRes, sRes, pdRes] = await Promise.all([
-      fetch("/api/stock/entries?purchases=true"),
+      fetch(filterProgramId ? `/api/stock/entries?purchases=true&programId=${filterProgramId}` : "/api/stock/entries?purchases=true"),
       fetch("/api/programs"),
       fetch("/api/suppliers"),
       fetch("/api/products"),
@@ -43,7 +46,7 @@ export default function PurchasesPage() {
     if (sRes.ok) setSuppliers(await sRes.json());
     if (pdRes.ok) setProducts(await pdRes.json());
     setLoading(false);
-  }, []);
+  }, [filterProgramId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -124,6 +127,18 @@ export default function PurchasesPage() {
         Ao registrar, o produto entra no estoque e o valor é debitado automaticamente do orçamento do programa.
       </div>
 
+      {programs.length > 0 && (
+        <div className="flex items-center gap-3 mb-4 flex-wrap bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5">
+          <span className="text-xs font-semibold text-slate-500 shrink-0">Programa:</span>
+          <select value={filterProgramId} onChange={(e) => setFilterProgramId(e.target.value)} className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
+            <option value="">Todos</option>
+            {programs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          {filterProgramId && <button onClick={() => setFilterProgramId("")} className="text-xs text-slate-400 hover:text-red-500">× Limpar</button>}
+          <span className="text-xs text-slate-400 ml-auto">{purchases.length} compra(s)</span>
+        </div>
+      )}
+
       {loading ? (
         <div className="flex justify-center py-16"><div className="w-8 h-8 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" /></div>
       ) : purchases.length === 0 ? (
@@ -198,7 +213,7 @@ export default function PurchasesPage() {
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Produtos ({items.filter((r) => r.productId).length}/{items.length})</p>
               <button onClick={addItem} className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium"><Plus className="w-3 h-3" /> Adicionar produto</button>
             </div>
-            <div className="grid grid-cols-[2fr_1.4fr_2.2fr_1fr_auto] gap-2 text-xs font-semibold text-slate-400 uppercase px-1 mb-1">
+            <div className="grid grid-cols-[2fr_1.4fr_2.2fr_1fr_auto] gap-2 text-xs font-semibold text-slate-400 uppercase px-3 mb-1">
               <span>Produto *</span><span>Qtd *</span><span>Vl. Unit. (R$) *</span><span>Total</span><span></span>
             </div>
             <div className="space-y-2">

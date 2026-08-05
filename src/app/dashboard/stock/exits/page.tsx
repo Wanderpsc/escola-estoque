@@ -33,14 +33,12 @@ export default function StockExitsPage() {
   const [editItems, setEditItems] = useState<Array<{ id: string; quantity: string; unitPrice: string }>>([]);
   const [pendingAction, setPendingAction] = useState<{ label: string; fn: () => void } | null>(null);
   const [programs, setPrograms] = useState<Array<{ id: string; name: string; type: string }>>([]); 
-  const [entries, setEntries] = useState<Array<{ id: string; invoiceNumber: string; invoiceDate: string; totalValue: number; programId: string; supplier: { name: string } }>>([]); 
-  const [balance, setBalance] = useState<Array<{ id: string; name: string; unit: string; balance: number; avgPrice: number; programId?: string; program: { type: string } }>>([]);
+  const [entries, setEntries] = useState<Array<{ id: string; invoiceNumber: string; invoiceDate: string; totalValue: number; programId: string; supplier: { name: string } }>>([]);
+  const [balance, setBalance] = useState<Array<{ id: string; name: string; unit: string; balance: number; avgPrice: number; programId?: string; program: { type: string } }>>([]); 
   const [form, setForm] = useState(EMPTY_FORM);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    const [eRes, prRes, bRes, enRes] = await Promise.all([
-      fetch("/api/stock/exits"), fetch("/api/programs"), fetch("/api/stock/balance"), fetch("/api/stock/entries"),
+  // List-level filter (separate from the form's programId)
+  const [listFilterProgramId, setListFilterProgramId] = useState("");
     ]);
     if (eRes.ok) setExits(await eRes.json());
     if (prRes.ok) setPrograms(await prRes.json());
@@ -161,6 +159,18 @@ export default function StockExitsPage() {
       <PageHeader title="Saidas de Estoque" description="Registre saidas e consumo de produtos por programa">
         <Button onClick={() => setModal(true)}><Plus className="w-4 h-4" />Nova Saida</Button>
       </PageHeader>
+
+      {programs.length > 0 && (
+        <div className="flex items-center gap-3 mb-4 flex-wrap bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5">
+          <span className="text-xs font-semibold text-slate-500 shrink-0">Programa:</span>
+          <select value={listFilterProgramId} onChange={(e) => setListFilterProgramId(e.target.value)} className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
+            <option value="">Todos</option>
+            {programs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          {listFilterProgramId && <button onClick={() => setListFilterProgramId("")} className="text-xs text-slate-400 hover:text-red-500">× Limpar</button>}
+          <span className="text-xs text-slate-400 ml-auto">{exits.length} saída(s)</span>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex justify-center py-16"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>
