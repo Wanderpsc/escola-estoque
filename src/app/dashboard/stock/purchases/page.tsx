@@ -180,7 +180,7 @@ export default function PurchasesPage() {
         </div>
       )}
 
-      <Modal open={modal} onClose={() => { setModal(false); setHeader(EMPTY_HEADER); setItems([{ ...EMPTY_ITEM }]); }} title="Registrar Compra Informal" size="lg">
+      <Modal open={modal} onClose={() => { setModal(false); setHeader(EMPTY_HEADER); setItems([{ ...EMPTY_ITEM }]); }} title="Registrar Compra Informal" size="xl">
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <Select label="Programa *" value={header.programId} onChange={(e) => setHeader({ ...header, programId: e.target.value })}
