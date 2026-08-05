@@ -186,7 +186,7 @@ export default function FinancialPage() {
                 <div className={`h-1.5 rounded-full ${totalBudgetAll > 0 && totalSpentAll / totalBudgetAll > 0.9 ? "bg-red-400" : "bg-green-400"}`} style={{ width: `${totalBudgetAll > 0 ? Math.min((totalSpentAll / totalBudgetAll) * 100, 100) : 0}%` }} />
               </div>
             </div>
-          )}}
+          )}
           {chartData.length > 0 && (
             <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm mb-6">
               <h3 className="text-sm font-semibold text-slate-700 mb-4">Visão Financeira por Programa</h3>
