@@ -32,7 +32,9 @@ export default function StockExitsPage() {
   const [editMeta, setEditMeta] = useState({ exitDate: "", reason: "CONSUMO", observations: "" });
   const [editItems, setEditItems] = useState<Array<{ id: string; quantity: string; unitPrice: string }>>([]);
   const [pendingAction, setPendingAction] = useState<{ label: string; fn: () => void } | null>(null);
-  const [programs, setPrograms] = useState<Array<{ id: string; name: string; type: string }>>([]);  const [entries, setEntries] = useState<Array<{ id: string; invoiceNumber: string; invoiceDate: string; totalValue: number; programId: string; supplier: { name: string } }>>([])  const [balance, setBalance] = useState<Array<{ id: string; name: string; unit: string; balance: number; avgPrice: number; programId?: string; program: { type: string } }>>([]);
+  const [programs, setPrograms] = useState<Array<{ id: string; name: string; type: string }>>([]); 
+  const [entries, setEntries] = useState<Array<{ id: string; invoiceNumber: string; invoiceDate: string; totalValue: number; programId: string; supplier: { name: string } }>>([]); 
+  const [balance, setBalance] = useState<Array<{ id: string; name: string; unit: string; balance: number; avgPrice: number; programId?: string; program: { type: string } }>>([]);
   const [form, setForm] = useState(EMPTY_FORM);
 
   const load = useCallback(async () => {
