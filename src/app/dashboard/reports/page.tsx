@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useSession } from "next-auth/react";
-import { BarChart3, FileDown, Package, DollarSign, ArrowDownLeft, ArrowUpRight, AlertTriangle, Settings, ImageIcon, Save, ShoppingBag } from "lucide-react";
+import { BarChart3, FileDown, Package, DollarSign, ArrowDownLeft, ArrowUpRight, AlertTriangle, Settings, ImageIcon, Save, ShoppingBag, Printer } from "lucide-react";
 import { PageHeader, Button, Select, Badge } from "@/components/ui";
 import { formatCurrency, formatDate, PROGRAM_TYPES, EXIT_REASONS } from "@/lib/utils";
 
@@ -81,7 +81,7 @@ export default function ReportsPage() {
     } finally { setLoading(false); }
   }
 
-  async function exportPDF() {
+  async function exportPDF(printMode = false) {
     if (!data) return;
     setGenerating(true);
     try {
@@ -189,6 +189,10 @@ export default function ReportsPage() {
           styles: { fontSize: 8 },
           headStyles: { fillColor: [30, 64, 175] },
         });
+        const totalExits = data.reduce((s: number, r: any) => s + r.items.reduce((ss: number, i: any) => ss + i.totalPrice, 0), 0);
+        const yExits = (doc as any).lastAutoTable.finalY + 8;
+        doc.setFont("helvetica", "bold");
+        doc.text(`Total Saídas: ${formatCurrency(totalExits)}`, 14, yExits);
       } else if (type === "purchases") {
         autoTable(doc, {
           startY: 40,
@@ -254,6 +258,17 @@ export default function ReportsPage() {
             }
           },
         });
+        const totalCr = data.filter((r: any) => r.type === "CREDIT").reduce((s: number, r: any) => s + r.amount, 0);
+        const totalDb = data.filter((r: any) => r.type === "DEBIT").reduce((s: number, r: any) => s + r.amount, 0);
+        const netFin = totalCr - totalDb;
+        const yFin = (doc as any).lastAutoTable.finalY + 8;
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(22, 163, 74);  doc.text(`Créditos: ${formatCurrency(totalCr)}`, 14, yFin);
+        doc.setTextColor(220, 38, 38); doc.text(`Débitos: ${formatCurrency(totalDb)}`, 110, yFin);
+        doc.setTextColor(netFin >= 0 ? 22 : 220, netFin >= 0 ? 163 : 38, netFin >= 0 ? 74 : 38);
+        doc.text(`Saldo Líquido: ${formatCurrency(netFin)}`, 205, yFin);
+        doc.setTextColor(0, 0, 0);
       }
 
       // Rodapé
@@ -265,8 +280,17 @@ export default function ReportsPage() {
         doc.text(`EscolaEstoque – Relatório gerado em ${now.toLocaleString("pt-BR")} – Página ${i} de ${pageCount}`, 14, 205);
       }
 
-      doc.save(`escola-estoque-${type}-${now.getTime()}.pdf`);
-      toast.success("PDF gerado e baixado!");
+      if (printMode) {
+        doc.autoPrint();
+        const blob = doc.output("blob");
+        const url = URL.createObjectURL(blob);
+        const win = window.open(url, "_blank");
+        if (win) win.focus();
+        toast.success("Abrindo para impressão...");
+      } else {
+        doc.save(`escola-estoque-${type}-${now.getTime()}.pdf`);
+        toast.success("PDF gerado e baixado!");
+      }
     } catch (err) {
       toast.error("Erro ao gerar PDF");
     } finally { setGenerating(false); }
@@ -285,7 +309,10 @@ export default function ReportsPage() {
     <div>
       <PageHeader title="Relatórios" description="Gere e exporte relatórios em PDF para prestação de contas">
         {data && (
-          <Button onClick={exportPDF} loading={generating}><FileDown className="w-4 h-4" />Exportar PDF</Button>
+          <>
+            <Button variant="secondary" onClick={() => exportPDF(true)} loading={generating}><Printer className="w-4 h-4" />Imprimir</Button>
+            <Button onClick={() => exportPDF(false)} loading={generating}><FileDown className="w-4 h-4" />Exportar PDF</Button>
+          </>
         )}
         {["SCHOOL_ADMIN", "MANAGER"].includes(role) && (
           <Button variant="secondary" onClick={() => setShowHeaderSettings((v) => !v)}>
@@ -359,7 +386,8 @@ export default function ReportsPage() {
 
       <div className="flex gap-3 mb-6">
         <Button onClick={generateReport} loading={loading}><BarChart3 className="w-4 h-4" />Gerar Relatório</Button>
-        {data && <Button variant="secondary" onClick={exportPDF} loading={generating}><FileDown className="w-4 h-4" />Exportar PDF</Button>}
+        {data && <Button variant="secondary" onClick={() => exportPDF(true)} loading={generating}><Printer className="w-4 h-4" />Imprimir</Button>}
+        {data && <Button variant="secondary" onClick={() => exportPDF(false)} loading={generating}><FileDown className="w-4 h-4" />Exportar PDF</Button>}
       </div>
 
       {/* Prévia do relatório */}
@@ -375,69 +403,177 @@ export default function ReportsPage() {
 
           <div className="overflow-x-auto">
             {type === "balance" && (
-              <table className="w-full text-sm">
-                <thead><tr className="bg-slate-50">
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Produto</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">NCM</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Programa</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 border-b">Saldo</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 border-b">Valor em Est.</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 border-b">Status</th>
-                </tr></thead>
-                <tbody>{data.slice(0, 20).map((r: any) => (
-                  <tr key={r.id} className="border-b border-slate-50 hover:bg-slate-50">
-                    <td className="px-4 py-2.5 font-medium text-slate-700">{r.name}</td>
-                    <td className="px-4 py-2.5 font-mono text-xs text-slate-500">{r.ncmCode}</td>
-                    <td className="px-4 py-2.5 text-slate-500 text-xs">{PROGRAM_TYPES[r.program?.type as keyof typeof PROGRAM_TYPES]?.label}</td>
-                    <td className="px-4 py-2.5 text-right font-semibold">{r.balance.toFixed(2)} {r.unit}</td>
-                    <td className="px-4 py-2.5 text-right">{formatCurrency(r.totalValue)}</td>
-                    <td className="px-4 py-2.5 text-center">
-                      <Badge color={r.status === "ZERO" ? "red" : r.status === "LOW" ? "yellow" : "green"}>{r.status}</Badge>
-                    </td>
-                  </tr>
-                ))}</tbody>
-              </table>
+              <>
+                <table className="w-full text-sm">
+                  <thead><tr className="bg-slate-50">
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Produto</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">NCM</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Programa</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 border-b">Saldo</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 border-b">Valor em Est.</th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 border-b">Status</th>
+                  </tr></thead>
+                  <tbody>{data.slice(0, 20).map((r: any) => (
+                    <tr key={r.id} className="border-b border-slate-50 hover:bg-slate-50">
+                      <td className="px-4 py-2.5 font-medium text-slate-700">{r.name}</td>
+                      <td className="px-4 py-2.5 font-mono text-xs text-slate-500">{r.ncmCode}</td>
+                      <td className="px-4 py-2.5 text-slate-500 text-xs">{PROGRAM_TYPES[r.program?.type as keyof typeof PROGRAM_TYPES]?.label}</td>
+                      <td className="px-4 py-2.5 text-right font-semibold">{r.balance.toFixed(2)} {r.unit}</td>
+                      <td className="px-4 py-2.5 text-right">{formatCurrency(r.totalValue)}</td>
+                      <td className="px-4 py-2.5 text-center">
+                        <Badge color={r.status === "ZERO" ? "red" : r.status === "LOW" ? "yellow" : "green"}>{r.status}</Badge>
+                      </td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+                <div className="px-5 py-3 bg-blue-50 border-t-2 border-blue-100 flex justify-between items-center">
+                  <span className="text-xs text-slate-500">{data.length} produto(s)</span>
+                  <span className="text-sm font-bold text-blue-700">Valor total em estoque: {formatCurrency(data.reduce((s: number, r: any) => s + r.totalValue, 0))}</span>
+                </div>
+              </>
             )}
             {type === "entries" && (
-              <table className="w-full text-sm">
-                <thead><tr className="bg-slate-50">
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">NF</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Data</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Fornecedor</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Programa</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 border-b">Valor</th>
-                </tr></thead>
-                <tbody>{data.slice(0, 20).map((r: any) => (
-                  <tr key={r.id} className="border-b border-slate-50 hover:bg-slate-50">
-                    <td className="px-4 py-2.5 font-medium">NF {r.invoiceNumber}</td>
-                    <td className="px-4 py-2.5 text-slate-500">{formatDate(r.invoiceDate)}</td>
-                    <td className="px-4 py-2.5">{r.supplier.name}</td>
-                    <td className="px-4 py-2.5 text-xs text-slate-500">{PROGRAM_TYPES[r.program?.type as keyof typeof PROGRAM_TYPES]?.label}</td>
-                    <td className="px-4 py-2.5 text-right font-semibold text-green-700">{formatCurrency(r.totalValue)}</td>
-                  </tr>
-                ))}</tbody>
-              </table>
+              <>
+                <table className="w-full text-sm">
+                  <thead><tr className="bg-slate-50">
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">NF</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Data</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Fornecedor</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Programa</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 border-b">Valor</th>
+                  </tr></thead>
+                  <tbody>{data.slice(0, 20).map((r: any) => (
+                    <tr key={r.id} className="border-b border-slate-50 hover:bg-slate-50">
+                      <td className="px-4 py-2.5 font-medium">NF {r.invoiceNumber}</td>
+                      <td className="px-4 py-2.5 text-slate-500">{formatDate(r.invoiceDate)}</td>
+                      <td className="px-4 py-2.5">{r.supplier.name}</td>
+                      <td className="px-4 py-2.5 text-xs text-slate-500">{PROGRAM_TYPES[r.program?.type as keyof typeof PROGRAM_TYPES]?.label}</td>
+                      <td className="px-4 py-2.5 text-right font-semibold text-green-700">{formatCurrency(r.totalValue)}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+                <div className="px-5 py-3 bg-green-50 border-t-2 border-green-100 flex justify-between items-center">
+                  <span className="text-xs text-slate-500">{data.length} nota(s) fiscal(is)</span>
+                  <span className="text-sm font-bold text-green-700">Total entradas: {formatCurrency(data.reduce((s: number, r: any) => s + r.totalValue, 0))}</span>
+                </div>
+              </>
             )}
-            {type === "financial" && (
-              <table className="w-full text-sm">
-                <thead><tr className="bg-slate-50">
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Data</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Programa</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Tipo</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Descrição</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 border-b">Valor</th>
-                </tr></thead>
-                <tbody>{data.slice(0, 20).map((r: any) => (
-                  <tr key={r.id} className="border-b border-slate-50 hover:bg-slate-50">
-                    <td className="px-4 py-2.5">{formatDate(r.date)}</td>
-                    <td className="px-4 py-2.5 text-xs text-slate-500">{r.program?.name}</td>
-                    <td className="px-4 py-2.5"><Badge color={r.type === "CREDIT" ? "green" : "red"}>{r.type === "CREDIT" ? "Crédito" : "Débito"}</Badge></td>
-                    <td className="px-4 py-2.5 text-slate-600">{r.description}</td>
-                    <td className={`px-4 py-2.5 text-right font-semibold ${r.type === "CREDIT" ? "text-green-700" : "text-red-600"}`}>{formatCurrency(r.amount)}</td>
-                  </tr>
-                ))}</tbody>
-              </table>
+            {type === "exits" && (
+              <>
+                <table className="w-full text-sm">
+                  <thead><tr className="bg-slate-50">
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Data</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Programa</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Motivo</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 border-b">Itens</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 border-b">Valor</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Usuário</th>
+                  </tr></thead>
+                  <tbody>{data.slice(0, 20).map((r: any) => (
+                    <tr key={r.id} className="border-b border-slate-50 hover:bg-slate-50">
+                      <td className="px-4 py-2.5 text-slate-500">{formatDate(r.exitDate)}</td>
+                      <td className="px-4 py-2.5 text-xs text-slate-500">{PROGRAM_TYPES[r.program?.type as keyof typeof PROGRAM_TYPES]?.label}</td>
+                      <td className="px-4 py-2.5">{EXIT_REASONS[r.reason as keyof typeof EXIT_REASONS] ?? r.reason}</td>
+                      <td className="px-4 py-2.5 text-right">{r.items.length}</td>
+                      <td className="px-4 py-2.5 text-right font-semibold text-red-600">{formatCurrency(r.items.reduce((s: number, i: any) => s + i.totalPrice, 0))}</td>
+                      <td className="px-4 py-2.5 text-xs text-slate-500">{r.user.name}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+                <div className="px-5 py-3 bg-red-50 border-t-2 border-red-100 flex justify-between items-center">
+                  <span className="text-xs text-slate-500">{data.length} saída(s)</span>
+                  <span className="text-sm font-bold text-red-700">Total saídas: {formatCurrency(data.reduce((s: number, r: any) => s + r.items.reduce((ss: number, i: any) => ss + i.totalPrice, 0), 0))}</span>
+                </div>
+              </>
             )}
+            {type === "extra_exits" && (
+              <>
+                <table className="w-full text-sm">
+                  <thead><tr className="bg-slate-50">
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Data</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Programa</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Produto</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 border-b">Qtd</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 border-b">Valor</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Obs.</th>
+                  </tr></thead>
+                  <tbody>{data.slice(0, 20).flatMap((r: any) => r.items.map((i: any, idx: number) => (
+                    <tr key={`${r.id}-${idx}`} className="border-b border-slate-50 hover:bg-slate-50">
+                      <td className="px-4 py-2.5 text-slate-500">{formatDate(r.exitDate)}</td>
+                      <td className="px-4 py-2.5 text-xs text-slate-500">{PROGRAM_TYPES[r.program?.type as keyof typeof PROGRAM_TYPES]?.label}</td>
+                      <td className="px-4 py-2.5 font-medium text-slate-700">{i.product.name} <span className="text-slate-400">({i.product.unit})</span></td>
+                      <td className="px-4 py-2.5 text-right">{i.quantity.toFixed(2)}</td>
+                      <td className="px-4 py-2.5 text-right font-semibold text-orange-700">{formatCurrency(i.totalPrice)}</td>
+                      <td className="px-4 py-2.5 text-xs text-slate-400 italic">{r.observations ?? "—"}</td>
+                    </tr>
+                  )))}</tbody>
+                </table>
+                <div className="px-5 py-3 bg-orange-50 border-t-2 border-orange-100 flex justify-between items-center">
+                  <span className="text-xs text-slate-500">{data.length} saída(s) extra(s)</span>
+                  <span className="text-sm font-bold text-orange-700">Total saídas extras: {formatCurrency(data.reduce((s: number, r: any) => s + r.items.reduce((ss: number, i: any) => ss + i.totalPrice, 0), 0))}</span>
+                </div>
+              </>
+            )}
+            {type === "purchases" && (
+              <>
+                <table className="w-full text-sm">
+                  <thead><tr className="bg-slate-50">
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Data</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Programa</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Fornecedor</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Produto</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 border-b">Qtd</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 border-b">Valor</th>
+                  </tr></thead>
+                  <tbody>{data.slice(0, 20).flatMap((r: any) => r.items.map((i: any, idx: number) => (
+                    <tr key={`${r.id}-${idx}`} className="border-b border-slate-50 hover:bg-slate-50">
+                      <td className="px-4 py-2.5 text-slate-500">{formatDate(r.invoiceDate)}</td>
+                      <td className="px-4 py-2.5 text-xs text-slate-500">{PROGRAM_TYPES[r.program?.type as keyof typeof PROGRAM_TYPES]?.label}</td>
+                      <td className="px-4 py-2.5">{r.supplier.name}</td>
+                      <td className="px-4 py-2.5 font-medium text-slate-700">{i.product.name} <span className="text-slate-400">({i.product.unit})</span></td>
+                      <td className="px-4 py-2.5 text-right">{i.quantity.toFixed(2)}</td>
+                      <td className="px-4 py-2.5 text-right font-semibold text-amber-700">{formatCurrency(i.totalPrice)}</td>
+                    </tr>
+                  )))}</tbody>
+                </table>
+                <div className="px-5 py-3 bg-amber-50 border-t-2 border-amber-100 flex justify-between items-center">
+                  <span className="text-xs text-slate-500">{data.length} compra(s)</span>
+                  <span className="text-sm font-bold text-amber-700">Total compras informais: {formatCurrency(data.reduce((s: number, r: any) => s + r.totalValue, 0))}</span>
+                </div>
+              </>
+            )}
+            {type === "financial" && (() => {
+              const cr = data.filter((r: any) => r.type === "CREDIT").reduce((s: number, r: any) => s + r.amount, 0);
+              const db = data.filter((r: any) => r.type === "DEBIT").reduce((s: number, r: any) => s + r.amount, 0);
+              const net = cr - db;
+              return (
+                <>
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-slate-50">
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Data</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Programa</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Tipo</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Descrição</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 border-b">Valor</th>
+                    </tr></thead>
+                    <tbody>{data.slice(0, 20).map((r: any) => (
+                      <tr key={r.id} className="border-b border-slate-50 hover:bg-slate-50">
+                        <td className="px-4 py-2.5">{formatDate(r.date)}</td>
+                        <td className="px-4 py-2.5 text-xs text-slate-500">{r.program?.name}</td>
+                        <td className="px-4 py-2.5"><Badge color={r.type === "CREDIT" ? "green" : "red"}>{r.type === "CREDIT" ? "Crédito" : "Débito"}</Badge></td>
+                        <td className="px-4 py-2.5 text-slate-600">{r.description}</td>
+                        <td className={`px-4 py-2.5 text-right font-semibold ${r.type === "CREDIT" ? "text-green-700" : "text-red-600"}`}>{formatCurrency(r.amount)}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                  <div className="px-5 py-3 bg-slate-50 border-t-2 border-slate-200 flex flex-wrap gap-6 items-center justify-end">
+                    <span className="text-sm font-semibold text-green-700">Créditos: {formatCurrency(cr)}</span>
+                    <span className="text-sm font-semibold text-red-600">Débitos: {formatCurrency(db)}</span>
+                    <span className={`text-sm font-bold ${net >= 0 ? "text-green-800" : "text-red-700"}`}>Saldo líquido: {formatCurrency(net)}</span>
+                  </div>
+                </>
+              );
+            })()}
           </div>
           {data.length > 20 && <p className="px-5 py-3 text-xs text-slate-400 border-t">Mostrando 20 de {data.length} registros. O PDF conterá todos.</p>}
         </div>
