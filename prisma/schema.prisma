@@ -191,6 +191,7 @@ model EntryItem {
   totalPrice Float
   expiresAt  DateTime?
   lot        String?
+  isExtra    Boolean    @default(false) // produto entregue fora da NF — gera débito financeiro separado
 
   createdAt DateTime @default(now())
 }

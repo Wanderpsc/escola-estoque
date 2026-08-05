@@ -27,6 +27,7 @@ import {
   Bell,
   KeyRound,
   ClipboardList,
+  Network,
 } from "lucide-react";
 
 // Navegação do SUPER_ADMIN (dono do sistema)
@@ -35,6 +36,7 @@ const adminNavigation = [
   { name: "Escolas", href: "/dashboard/schools", icon: School },
   { name: "Licenças", href: "/dashboard/licenses", icon: KeyRound },
   { name: "Usuários", href: "/dashboard/users", icon: Users },
+  { name: "Diagrama do Sistema", href: "/dashboard/system-diagram", icon: Network },
 ];
 
 // Navegação das escolas (diretores e equipe)

@@ -7,7 +7,7 @@ import { z } from "zod";
 const entryItemSchema = z.object({
   productId: z.string(),
   quantity: z.number().positive(),
-  unitPrice: z.number().positive(),
+  unitPrice: z.number().nonnegative(),
   lot: z.string().optional(),
   expiresAt: z.string().optional().nullable(),
 });
@@ -21,6 +21,7 @@ const entrySchema = z.object({
   programId: z.string(),
   observations: z.string().optional(),
   items: z.array(entryItemSchema).min(1),
+  extraItems: z.array(entryItemSchema).optional().default([]),
   isPurchase: z.boolean().optional().default(false),
 });
 
@@ -78,8 +79,14 @@ export async function POST(req: NextRequest) {
   const parsed = entrySchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
-  const { items, ...entryData } = parsed.data;
+  const { items, extraItems, ...entryData } = parsed.data;
   const totalValue = items.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
+  const extraValue = extraItems.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
+
+  const allItems = [
+    ...items.map((i) => ({ ...i, isExtra: false })),
+    ...extraItems.map((i) => ({ ...i, isExtra: true })),
+  ];
 
   const entry = await db.stockEntry.create({
     data: {
@@ -88,13 +95,14 @@ export async function POST(req: NextRequest) {
       totalValue,
       userId,
       items: {
-        create: items.map((i) => ({
+        create: allItems.map((i) => ({
           productId: i.productId,
           quantity: i.quantity,
           unitPrice: i.unitPrice,
           totalPrice: i.quantity * i.unitPrice,
           lot: i.lot,
           expiresAt: i.expiresAt ? new Date(i.expiresAt) : null,
+          isExtra: i.isExtra,
         })),
       },
     },
@@ -114,6 +122,21 @@ export async function POST(req: NextRequest) {
         amount: totalValue,
         description: `Compra Informal — ${entryData.observations ?? entry.invoiceNumber}`,
         reference: `PURCHASE-${entry.id}`,
+        date: new Date(entryData.invoiceDate),
+      },
+    });
+  }
+
+  // Produtos extra NF: cria débito financeiro acoplado à NF
+  if (extraValue > 0) {
+    await db.budgetMovement.create({
+      data: {
+        programId: entryData.programId,
+        type: "DEBIT",
+        category: "EXTRA",
+        amount: extraValue,
+        description: `Produtos Extra NF ${entry.invoiceNumber} — ${extraItems.length} item(ns) fora da nota`,
+        reference: `NF-EXTRA-${entry.id}`,
         date: new Date(entryData.invoiceDate),
       },
     });

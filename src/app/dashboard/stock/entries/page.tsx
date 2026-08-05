@@ -2,13 +2,13 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, X, Barcode, ArrowDownToLine } from "lucide-react";
+import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, X, Barcode, ArrowDownToLine, PackagePlus } from "lucide-react";
 import { PageHeader, Button, Badge, Modal, Input, Select, EmptyState, Table, Th, Td } from "@/components/ui";
 import { formatCurrency, formatDate, PROGRAM_TYPES } from "@/lib/utils";
 import BarcodeScanner from "@/components/BarcodeScanner";
 import PasswordConfirmModal from "@/components/PasswordConfirmModal";
 
-interface EntryItem { id: string; productId: string; quantity: number; unitPrice: number; totalPrice: number; lot?: string; product: { name: string; unit: string } }
+interface EntryItem { id: string; productId: string; quantity: number; unitPrice: number; totalPrice: number; lot?: string; isExtra: boolean; product: { name: string; unit: string } }
 interface Entry {
   id: string; programId: string; invoiceNumber: string; invoiceDate: string; totalValue: number; observations?: string;
   supplier: { id: string; name: string }; program: { id: string; name: string; type: string };
@@ -30,7 +30,10 @@ export default function StockEntriesPage() {
   const [products, setProducts] = useState<Array<{ id: string; name: string; unit: string; programId: string; barcode?: string }>>([]);
   const [header, setHeader] = useState(EMPTY_HEADER);
   const [items, setItems] = useState<ItemRow[]>([{ ...EMPTY_ITEM }]);
+  const [extraItems, setExtraItems] = useState<ItemRow[]>([]);
+  const [showExtraSection, setShowExtraSection] = useState(false);
   const [scanningRowIndex, setScanningRowIndex] = useState<number | null>(null);
+  const [scanningExtra, setScanningExtra] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   // Edit state
@@ -65,11 +68,18 @@ export default function StockEntriesPage() {
 
   const filteredProducts = products.filter((p) => !header.programId || p.programId === header.programId);
   const totalNF = items.reduce((s, r) => s + Number(r.quantity || 0) * Number(r.unitPrice || 0), 0);
+  const totalExtra = extraItems.reduce((s, r) => s + Number(r.quantity || 0) * Number(r.unitPrice || 0), 0);
 
   function addItem() { setItems((prev) => [...prev, { ...EMPTY_ITEM }]); }
   function removeItem(i: number) { setItems((prev) => prev.filter((_, idx) => idx !== i)); }
   function setItemField(i: number, field: keyof ItemRow, val: string) {
     setItems((prev) => prev.map((row, idx) => idx === i ? { ...row, [field]: val } : row));
+  }
+
+  function addExtraItem() { setExtraItems((prev) => [...prev, { ...EMPTY_ITEM }]); }
+  function removeExtraItem(i: number) { setExtraItems((prev) => prev.filter((_, idx) => idx !== i)); }
+  function setExtraItemField(i: number, field: keyof ItemRow, val: string) {
+    setExtraItems((prev) => prev.map((row, idx) => idx === i ? { ...row, [field]: val } : row));
   }
 
   function toggleExpand(id: string) {
@@ -82,15 +92,20 @@ export default function StockEntriesPage() {
     setEditItems(entry.items.map((i) => ({ id: i.id, quantity: String(i.quantity), unitPrice: String(i.unitPrice) })));
   }
 
-  async function handleBarcodeDetected(barcode: string, rowIndex: number) {
-    setScanningRowIndex(null);
+  async function handleBarcodeDetected(barcode: string, rowIndex: number, isExtraRow: boolean) {
+    setScanningRowIndex(null); setScanningExtra(false);
     const local = products.find((p) => p.barcode === barcode);
-    if (local) { setItemField(rowIndex, "productId", local.id); toast.success(`Produto: ${local.name}`); return; }
+    if (local) {
+      if (isExtraRow) setExtraItemField(rowIndex, "productId", local.id);
+      else setItemField(rowIndex, "productId", local.id);
+      toast.success(`Produto: ${local.name}`); return;
+    }
     const res = await fetch(`/api/products?barcode=${encodeURIComponent(barcode)}`);
     if (res.ok) {
       const prod = await res.json();
       setProducts((prev) => prev.some((p) => p.id === prod.id) ? prev : [...prev, prod]);
-      setItemField(rowIndex, "productId", prod.id);
+      if (isExtraRow) setExtraItemField(rowIndex, "productId", prod.id);
+      else setItemField(rowIndex, "productId", prod.id);
       toast.success(`Produto: ${prod.name}`);
     } else {
       toast.error(`Codigo ${barcode} nao encontrado. Cadastre o produto com este codigo primeiro.`);
@@ -101,16 +116,24 @@ export default function StockEntriesPage() {
     if (!header.programId || !header.supplierId || !header.invoiceDate) { toast.error("Preencha todos os campos obrigatorios (*)"); return; }
     const validItems = items.filter((r) => r.productId && Number(r.quantity) > 0);
     if (validItems.length === 0) { toast.error("Adicione ao menos 1 produto"); return; }
+    const validExtraItems = extraItems.filter((r) => r.productId && Number(r.quantity) > 0);
     setSaving(true);
     try {
       const res = await fetch("/api/stock/entries", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ programId: header.programId, supplierId: header.supplierId, invoiceNumber: header.invoiceNumber || `SEM-NF-${Date.now().toString().slice(-8)}`, invoiceDate: header.invoiceDate, observations: header.observations, items: validItems.map((r) => ({ productId: r.productId, quantity: Number(r.quantity), unitPrice: Number(r.unitPrice), lot: r.lot || undefined })) }),
+        body: JSON.stringify({
+          programId: header.programId, supplierId: header.supplierId,
+          invoiceNumber: header.invoiceNumber || `SEM-NF-${Date.now().toString().slice(-8)}`,
+          invoiceDate: header.invoiceDate, observations: header.observations,
+          items: validItems.map((r) => ({ productId: r.productId, quantity: Number(r.quantity), unitPrice: Number(r.unitPrice), lot: r.lot || undefined })),
+          extraItems: validExtraItems.map((r) => ({ productId: r.productId, quantity: Number(r.quantity), unitPrice: Number(r.unitPrice), lot: r.lot || undefined })),
+        }),
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? "Erro ao registrar entrada"); return; }
-      toast.success(`NF ${header.invoiceNumber} registrada com ${validItems.length} produto(s)!`);
-      setModal(false); setHeader(EMPTY_HEADER); setItems([{ ...EMPTY_ITEM }]); load();
+      const extraMsg = validExtraItems.length > 0 ? ` + ${validExtraItems.length} produto(s) extra NF` : "";
+      toast.success(`NF ${header.invoiceNumber} registrada com ${validItems.length} produto(s)${extraMsg}!`);
+      setModal(false); setHeader(EMPTY_HEADER); setItems([{ ...EMPTY_ITEM }]); setExtraItems([]); setShowExtraSection(false); load();
     } finally { setSaving(false); }
   }
 
@@ -231,11 +254,14 @@ export default function StockEntriesPage() {
                       <thead><tr><Th>Produto</Th><Th>Qtd</Th><Th>Vl. Unit.</Th><Th>Total</Th><Th></Th></tr></thead>
                       <tbody>
                         {entry.items.map((item) => (
-                          <tr key={item.id} className="hover:bg-slate-50">
-                            <Td>{item.product.name} <span className="text-slate-400">({item.product.unit})</span></Td>
+                          <tr key={item.id} className={item.isExtra ? "hover:bg-amber-50 bg-amber-50/30" : "hover:bg-slate-50"}>
+                            <Td>
+                              {item.product.name} <span className="text-slate-400">({item.product.unit})</span>
+                              {item.isExtra && <span className="ml-2 text-xs font-semibold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">Extra NF</span>}
+                            </Td>
                             <Td>{item.quantity.toFixed(2)} {item.product.unit}</Td>
                             <Td>{formatCurrency(item.unitPrice)}</Td>
-                            <Td className="font-semibold text-green-700">{formatCurrency(item.totalPrice)}</Td>
+                            <Td className={`font-semibold ${item.isExtra ? "text-amber-700" : "text-green-700"}`}>{formatCurrency(item.totalPrice)}</Td>
                             <Td>
                               <button
                                 onClick={() => {
@@ -252,6 +278,12 @@ export default function StockEntriesPage() {
                         ))}
                       </tbody>
                     </Table>
+                    {entry.items.some((i) => i.isExtra) && (
+                      <div className="mt-2 flex items-center justify-between text-xs px-1">
+                        <span className="text-amber-600 font-medium">Débito Extra NF (financeiro separado)</span>
+                        <span className="font-bold text-amber-700">{formatCurrency(entry.items.filter((i) => i.isExtra).reduce((s, i) => s + i.totalPrice, 0))}</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -261,7 +293,7 @@ export default function StockEntriesPage() {
       )}
 
       {/* Modal nova entrada */}
-      <Modal open={modal} onClose={() => { setModal(false); setHeader(EMPTY_HEADER); setItems([{ ...EMPTY_ITEM }]); }} title="Registrar Nota Fiscal Completa" size="xl">
+      <Modal open={modal} onClose={() => { setModal(false); setHeader(EMPTY_HEADER); setItems([{ ...EMPTY_ITEM }]); setExtraItems([]); setShowExtraSection(false); }} title="Registrar Nota Fiscal Completa" size="xl">
         <div className="space-y-5">
           <div className="bg-slate-50 rounded-xl p-4 space-y-4">
             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Dados da Nota Fiscal</p>
@@ -275,6 +307,8 @@ export default function StockEntriesPage() {
               <Input label="Observacoes" value={header.observations} onChange={(e) => setHeader({ ...header, observations: e.target.value })} />
             </div>
           </div>
+
+          {/* Produtos da NF */}
           <div>
             <div className="flex items-center justify-between mb-3">
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Produtos da NF ({items.filter((r) => r.productId).length}/{items.length})</p>
@@ -293,7 +327,7 @@ export default function StockEntriesPage() {
                         <option value="">Selecionar...</option>
                         {filteredProducts.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.unit})</option>)}
                       </select>
-                      <button type="button" onClick={() => setScanningRowIndex(i)} title="Escanear codigo" className="px-2 py-1.5 border border-slate-300 rounded-lg text-slate-500 hover:border-blue-400 hover:text-blue-600"><Barcode className="w-4 h-4" /></button>
+                      <button type="button" onClick={() => { setScanningRowIndex(i); setScanningExtra(false); }} title="Escanear codigo" className="px-2 py-1.5 border border-slate-300 rounded-lg text-slate-500 hover:border-blue-400 hover:text-blue-600"><Barcode className="w-4 h-4" /></button>
                     </div>
                     <input type="number" step="0.001" min="0" value={row.quantity} onChange={(e) => setItemField(i, "quantity", e.target.value)} className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 w-full min-w-[80px]" />
                     <input type="number" step="0.01" min="0" value={row.unitPrice} onChange={(e) => setItemField(i, "unitPrice", e.target.value)} className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 w-full min-w-[100px]" />
@@ -305,12 +339,84 @@ export default function StockEntriesPage() {
               })}
             </div>
           </div>
-          <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-xl px-4 py-3">
-            <div><p className="text-xs text-green-600">Valor total da Nota Fiscal</p><p className="text-xs text-green-500">{items.filter((r) => r.productId).length} produto(s) validos</p></div>
-            <p className="text-2xl font-bold text-green-700">{formatCurrency(totalNF)}</p>
-          </div>
+
+          {/* Seção Extra NF */}
+          {!showExtraSection ? (
+            <button
+              type="button"
+              onClick={() => { setShowExtraSection(true); if (extraItems.length === 0) addExtraItem(); }}
+              className="flex items-center gap-2 text-xs text-amber-600 hover:text-amber-800 font-medium border border-dashed border-amber-300 rounded-lg px-3 py-2 w-full justify-center hover:bg-amber-50 transition-colors"
+            >
+              <PackagePlus className="w-4 h-4" />
+              Adicionar produtos extra nota fiscal (entram no estoque com débito financeiro separado)
+            </button>
+          ) : (
+            <div className="border border-amber-200 rounded-xl bg-amber-50/40 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <PackagePlus className="w-4 h-4 text-amber-600" />
+                  <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Produtos Extra NF ({extraItems.filter((r) => r.productId).length})</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button onClick={addExtraItem} className="flex items-center gap-1 text-xs text-amber-600 hover:text-amber-800 font-medium"><Plus className="w-3 h-3" /> Adicionar</button>
+                  <button onClick={() => { setShowExtraSection(false); setExtraItems([]); }} className="text-xs text-slate-400 hover:text-red-500">× Remover seção</button>
+                </div>
+              </div>
+              <p className="text-xs text-amber-700 bg-amber-100 border border-amber-200 rounded-lg px-3 py-2">
+                Produtos entregues <strong>fora da nota fiscal</strong>. Entram no estoque normalmente mas geram um <strong>débito financeiro separado</strong> acoplado a esta NF, afetando a prestação de contas do programa.
+              </p>
+              <div className="grid grid-cols-[2.5fr_1.5fr_2fr_1.2fr_1fr_auto] gap-2 text-xs font-semibold text-amber-500 uppercase px-1 mb-1">
+                <span>Produto *</span><span>Qtd *</span><span>Vl. Unit. (R$) *</span><span>Total</span><span>Lote</span><span></span>
+              </div>
+              <div className="space-y-2">
+                {extraItems.map((row, i) => {
+                  const rowTotal = Number(row.quantity || 0) * Number(row.unitPrice || 0);
+                  return (
+                    <div key={i} className="grid grid-cols-[2.5fr_1.5fr_2fr_1.2fr_1fr_auto] gap-2 items-center bg-white border border-amber-200 rounded-lg px-3 py-2">
+                      <div className="flex gap-1">
+                        <select value={row.productId} onChange={(e) => setExtraItemField(i, "productId", e.target.value)} className="flex-1 border border-amber-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400">
+                          <option value="">Selecionar...</option>
+                          {filteredProducts.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.unit})</option>)}
+                        </select>
+                        <button type="button" onClick={() => { setScanningRowIndex(i); setScanningExtra(true); }} title="Escanear codigo" className="px-2 py-1.5 border border-amber-200 rounded-lg text-amber-500 hover:border-amber-400 hover:text-amber-700"><Barcode className="w-4 h-4" /></button>
+                      </div>
+                      <input type="number" step="0.001" min="0" value={row.quantity} onChange={(e) => setExtraItemField(i, "quantity", e.target.value)} className="border border-amber-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-amber-400 w-full min-w-[80px]" />
+                      <input type="number" step="0.01" min="0" value={row.unitPrice} onChange={(e) => setExtraItemField(i, "unitPrice", e.target.value)} className="border border-amber-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-amber-400 w-full min-w-[100px]" />
+                      <div className="text-sm font-semibold text-amber-700 text-right">{formatCurrency(rowTotal)}</div>
+                      <input type="text" value={row.lot} placeholder="Lote" onChange={(e) => setExtraItemField(i, "lot", e.target.value)} className="border border-amber-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-amber-400 w-full" />
+                      <button onClick={() => removeExtraItem(i)} disabled={extraItems.length === 1} className="text-slate-300 hover:text-red-500 disabled:opacity-20 p-1"><X className="w-4 h-4" /></button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Totais */}
+          {showExtraSection && totalExtra > 0 ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-xl px-4 py-3">
+                <div><p className="text-xs text-green-600">Valor da Nota Fiscal (oficial)</p><p className="text-xs text-green-500">{items.filter((r) => r.productId).length} produto(s) validos</p></div>
+                <p className="text-xl font-bold text-green-700">{formatCurrency(totalNF)}</p>
+              </div>
+              <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                <div><p className="text-xs text-amber-600">Débito Extra NF (acoplado ao financeiro)</p><p className="text-xs text-amber-500">{extraItems.filter((r) => r.productId).length} produto(s) extra</p></div>
+                <p className="text-xl font-bold text-amber-700">+ {formatCurrency(totalExtra)}</p>
+              </div>
+              <div className="flex items-center justify-between bg-slate-100 border border-slate-300 rounded-xl px-4 py-3">
+                <p className="text-xs font-semibold text-slate-600">Total Financeiro (NF + Extra)</p>
+                <p className="text-xl font-bold text-slate-800">{formatCurrency(totalNF + totalExtra)}</p>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-xl px-4 py-3">
+              <div><p className="text-xs text-green-600">Valor total da Nota Fiscal</p><p className="text-xs text-green-500">{items.filter((r) => r.productId).length} produto(s) validos</p></div>
+              <p className="text-2xl font-bold text-green-700">{formatCurrency(totalNF)}</p>
+            </div>
+          )}
+
           <div className="flex justify-end gap-3 pt-2 border-t border-slate-100">
-            <Button variant="secondary" onClick={() => { setModal(false); setHeader(EMPTY_HEADER); setItems([{ ...EMPTY_ITEM }]); }}>Cancelar</Button>
+            <Button variant="secondary" onClick={() => { setModal(false); setHeader(EMPTY_HEADER); setItems([{ ...EMPTY_ITEM }]); setExtraItems([]); setShowExtraSection(false); }}>Cancelar</Button>
             <Button onClick={handleSave} loading={saving}>Registrar NF Completa</Button>
           </div>
         </div>
@@ -354,7 +460,7 @@ export default function StockEntriesPage() {
       </Modal>
 
       {scanningRowIndex !== null && (
-        <BarcodeScanner title={`Escanear produto \u2014 linha ${scanningRowIndex + 1}`} onDetected={(code) => handleBarcodeDetected(code, scanningRowIndex)} onClose={() => setScanningRowIndex(null)} />
+        <BarcodeScanner title={`Escanear produto \u2014 linha ${scanningRowIndex + 1}${scanningExtra ? " (Extra NF)" : ""}`} onDetected={(code) => handleBarcodeDetected(code, scanningRowIndex, scanningExtra)} onClose={() => { setScanningRowIndex(null); setScanningExtra(false); }} />
       )}
 
       {pendingAction && (
