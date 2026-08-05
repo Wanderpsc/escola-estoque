@@ -39,13 +39,19 @@ export default function StockExitsPage() {
 
   // List-level filter (separate from the form's programId)
   const [listFilterProgramId, setListFilterProgramId] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const [eRes, prRes, bRes, enRes] = await Promise.all([
+      fetch(listFilterProgramId ? `/api/stock/exits?programId=${listFilterProgramId}` : "/api/stock/exits"),
+      fetch("/api/programs"), fetch("/api/stock/balance"), fetch("/api/stock/entries"),
     ]);
     if (eRes.ok) setExits(await eRes.json());
     if (prRes.ok) setPrograms(await prRes.json());
     if (bRes.ok) setBalance(await bRes.json());
     if (enRes.ok) setEntries(await enRes.json());
     setLoading(false);
-  }, []);
+  }, [listFilterProgramId]);
 
   useEffect(() => { load(); }, [load]);
 
