@@ -115,8 +115,8 @@ export default function StockEntriesPage() {
   async function handleSave() {
     if (!header.programId || !header.supplierId || !header.invoiceDate) { toast.error("Preencha todos os campos obrigatorios (*)"); return; }
     const validItems = items.filter((r) => r.productId && Number(r.quantity) > 0);
-    if (validItems.length === 0) { toast.error("Adicione ao menos 1 produto"); return; }
     const validExtraItems = extraItems.filter((r) => r.productId && Number(r.quantity) > 0);
+    if (validItems.length === 0 && validExtraItems.length === 0) { toast.error("Adicione ao menos 1 produto"); return; }
     setSaving(true);
     try {
       const res = await fetch("/api/stock/entries", {
@@ -132,7 +132,8 @@ export default function StockEntriesPage() {
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? "Erro ao registrar entrada"); return; }
       const extraMsg = validExtraItems.length > 0 ? ` + ${validExtraItems.length} produto(s) extra NF` : "";
-      toast.success(`NF ${header.invoiceNumber} registrada com ${validItems.length} produto(s)${extraMsg}!`);
+      const nfCount = validItems.length > 0 ? `${validItems.length} produto(s)` : "somente extras";
+      toast.success(`NF ${header.invoiceNumber} registrada com ${nfCount}${extraMsg}!`);
       setModal(false); setHeader(EMPTY_HEADER); setItems([{ ...EMPTY_ITEM }]); setExtraItems([]); setShowExtraSection(false); load();
     } finally { setSaving(false); }
   }

@@ -20,7 +20,7 @@ const entrySchema = z.object({
   supplierId: z.string(),
   programId: z.string(),
   observations: z.string().optional(),
-  items: z.array(entryItemSchema).min(1),
+  items: z.array(entryItemSchema).default([]),
   extraItems: z.array(entryItemSchema).optional().default([]),
   isPurchase: z.boolean().optional().default(false),
 });
@@ -78,6 +78,9 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const parsed = entrySchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+  if (parsed.data.items.length === 0 && parsed.data.extraItems.length === 0) {
+    return NextResponse.json({ error: "Adicione ao menos 1 produto" }, { status: 400 });
+  }
 
   const { items, extraItems, ...entryData } = parsed.data;
   const totalValue = items.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
