@@ -75,7 +75,11 @@ export async function POST(req: NextRequest) {
   const totalValue = items.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
 
   // Verificar saldo (pulado para saídas extra ou forceRegister=true com ressalva)
-  if (!exitData.isExtra && !forceRegister) {
+  // Para forceRegister: pré-calcular déficits antes de criar a saída (saldo muda após a criação)
+  type DeficitEntry = { productName: string; unit: string; deficitQty: number; deficitValue: number };
+  const deficits: DeficitEntry[] = [];
+
+  if (!exitData.isExtra) {
     for (const item of items) {
       const product = await db.product.findUnique({
         where: { id: item.productId },
@@ -89,10 +93,20 @@ export async function POST(req: NextRequest) {
         product.entryItems.reduce((s, i) => s + i.quantity, 0) -
         product.exitItems.reduce((s, i) => s + i.quantity, 0);
       if (item.quantity > balance) {
-        return NextResponse.json(
-          { error: `Saldo insuficiente para o produto "${product.name}". Saldo atual: ${balance} ${product.unit}` },
-          { status: 422 }
-        );
+        if (!forceRegister) {
+          return NextResponse.json(
+            { error: `Saldo insuficiente para o produto "${product.name}". Saldo atual: ${balance} ${product.unit}` },
+            { status: 422 }
+          );
+        }
+        // Registra o déficit para criar BudgetMovement após salvar a saída
+        const deficitQty = item.quantity - Math.max(balance, 0);
+        deficits.push({
+          productName: product.name,
+          unit: product.unit,
+          deficitQty,
+          deficitValue: deficitQty * item.unitPrice,
+        });
       }
     }
   }
@@ -127,6 +141,21 @@ export async function POST(req: NextRequest) {
         amount: totalValue,
         description: `Saída Extra — ${exitData.observations ?? items.map((_, i) => `item ${i + 1}`).join(", ")}`,
         reference: `EXIT-EXTRA-${exit.id}`,
+        date: new Date(exitData.exitDate),
+      },
+    });
+  }
+
+  // Saída com ressalva (déficit de saldo): cria débito financeiro para o excedente consumido
+  for (const d of deficits) {
+    await db.budgetMovement.create({
+      data: {
+        programId: exitData.programId,
+        type: "DEBIT",
+        category: "EXTRA",
+        amount: d.deficitValue,
+        description: `[RESSALVA] Déficit — ${d.productName}: ${d.deficitQty.toFixed(2)} ${d.unit} além do saldo`,
+        reference: `EXIT-DEFICIT-${exit.id}`,
         date: new Date(exitData.exitDate),
       },
     });
