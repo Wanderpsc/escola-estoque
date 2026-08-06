@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
-import { Plus, DollarSign, TrendingUp, TrendingDown, FileText } from "lucide-react";
+import { Plus, DollarSign, TrendingUp, TrendingDown, FileText, Trash2 } from "lucide-react";
 import { PageHeader, Button, Badge, Modal, Input, Select, Textarea, EmptyState, Table, Th, Td } from "@/components/ui";
 import { formatCurrency, formatDate, PROGRAM_TYPES } from "@/lib/utils";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
@@ -114,6 +114,13 @@ export default function FinancialPage() {
     Gasto: p.spent,
     Saldo: Math.max(p.balance, 0),
   }));
+
+  async function handleDeleteMovement(id: string) {
+    if (!confirm("Excluir esta movimentação?")) return;
+    const res = await fetch(`/api/financial/movements/${id}`, { method: "DELETE" });
+    if (res.ok) { toast.success("Movimentação excluída!"); load(); }
+    else toast.error("Erro ao excluir movimentação");
+  }
 
   const mainMovements = movements.filter((m) => m.category !== "EXTRA");
   const extraMovements = movements.filter((m) => m.category === "EXTRA");
@@ -228,6 +235,7 @@ export default function FinancialPage() {
                     <Th>Descrição</Th>
                     <Th>Referência</Th>
                     <Th>Valor</Th>
+                    <Th></Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -257,6 +265,11 @@ export default function FinancialPage() {
                       <Td className={`font-semibold ${m.type === "CREDIT" ? "text-green-700" : "text-red-600"}`}>
                         {m.type === "CREDIT" ? "+" : "-"}{formatCurrency(m.amount)}
                       </Td>
+                      <Td>
+                        <button onClick={() => handleDeleteMovement(m.id)} className="text-slate-400 hover:text-red-600 transition-colors" title="Excluir">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </Td>
                     </tr>
                   ))}
                 </tbody>
@@ -284,6 +297,7 @@ export default function FinancialPage() {
                     <Th>Descrição</Th>
                     <Th>Referência</Th>
                     <Th>Valor</Th>
+                    <Th></Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -302,6 +316,11 @@ export default function FinancialPage() {
                       <Td>{m.description}</Td>
                       <Td className="text-slate-400 text-xs">{m.reference ?? "—"}</Td>
                       <Td className="font-semibold text-red-600">-{formatCurrency(m.amount)}</Td>
+                      <Td>
+                        <button onClick={() => handleDeleteMovement(m.id)} className="text-slate-400 hover:text-red-600 transition-colors" title="Excluir">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </Td>
                     </tr>
                   ))}
                 </tbody>
