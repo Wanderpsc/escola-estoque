@@ -82,7 +82,7 @@ export default function ReportsPage() {
       const q  = p.toString();
       const qs = q ? `&${q}` : "";
       const endpoints: Record<ReportType, string> = {
-        balance:    "/api/stock/balance",
+        balance:    q ? `/api/stock/balance?${q}` : "/api/stock/balance",
         entries:    q ? `/api/stock/entries?${q}` : "/api/stock/entries",
         exits:      q ? `/api/stock/exits?${q}`   : "/api/stock/exits",
         financial:  q ? `/api/financial/movements?${q}` : "/api/financial/movements",
