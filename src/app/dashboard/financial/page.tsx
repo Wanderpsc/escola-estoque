@@ -22,7 +22,8 @@ export default function FinancialPage() {
   const [programs, setPrograms] = useState<Program[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [movements, setMovements] = useState<Movement[]>([]);
-  const [entries, setEntries] = useState<Array<{ totalValue: number; programId: string; isPurchase: boolean; invoiceNumber: string }>>([])  
+  const [entries, setEntries] = useState<Array<{ totalValue: number; programId: string; isPurchase: boolean; invoiceNumber: string }>>([])
+  const [exitData, setExitData] = useState<Array<{ programId: string; items: Array<{ totalPrice: number }> }>>([])
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<"budget" | "movement" | null>(null);
   const [saving, setSaving] = useState(false);
@@ -30,16 +31,18 @@ export default function FinancialPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [prRes, mvRes, enRes, pdRes] = await Promise.all([
+    const [prRes, mvRes, enRes, pdRes, exRes] = await Promise.all([
       fetch("/api/programs"),
       fetch("/api/financial/movements"),
       fetch("/api/stock/entries"),
       fetch("/api/products"),
+      fetch("/api/stock/exits"),
     ]);
     if (prRes.ok) setPrograms(await prRes.json());
     if (mvRes.ok) setMovements(await mvRes.json());
     if (enRes.ok) setEntries(await enRes.json());
     if (pdRes.ok) setProducts(await pdRes.json());
+    if (exRes.ok) setExitData(await exRes.json());
     setLoading(false);
   }, []);
 
@@ -94,18 +97,26 @@ export default function FinancialPage() {
   }
 
   const programStats = programs.map((p) => {
-    // Regular NF entries only — informal purchases and delivery entries are tracked via BudgetMovements
+    // NFs = compras registradas (deve casar com o orçamento da parcela — exibição/validação)
     const nfSpent = entries
       .filter(e => e.programId === p.id && !e.isPurchase && !e.invoiceNumber.startsWith("DEL-"))
       .reduce((s, e) => s + e.totalValue, 0);
+    // Gasto real = saídas/consumo registradas (o que foi efetivamente consumido)
+    const exitSpent = exitData
+      .filter(e => e.programId === p.id)
+      .flatMap(e => e.items)
+      .reduce((s, i) => s + i.totalPrice, 0);
     const progMovements = movements.filter(m => m.programId === p.id);
     const creditAmount = progMovements.filter(m => m.type === "CREDIT").reduce((s, m) => s + m.amount, 0);
-    const debitAmount  = progMovements.filter(m => m.type === "DEBIT").reduce((s, m) => s + m.amount, 0);
+    // Exclui EXIT-* para não duplicar com exitSpent
+    const debitAmount = progMovements
+      .filter(m => m.type === "DEBIT" && !m.reference?.startsWith("EXIT-"))
+      .reduce((s, m) => s + m.amount, 0);
     const totalBudget = p.budget + creditAmount;
-    const spent = nfSpent + debitAmount;
+    const spent = exitSpent + debitAmount;
     const balance = totalBudget - spent;
     const pct = totalBudget > 0 ? (spent / totalBudget) * 100 : 0;
-    return { ...p, totalBudget, spent, balance, pct };
+    return { ...p, totalBudget, spent, balance, pct, nfSpent, exitSpent };
   });
 
   const chartData = programStats.map((p) => ({
@@ -160,9 +171,25 @@ export default function FinancialPage() {
                 </div>
                 <h3 className="font-semibold text-slate-800 mb-3">{p.name}</h3>
                 <div className="space-y-1 text-sm">
-                  <div className="flex justify-between"><span className="text-slate-500">Orçamento</span><span className="font-semibold">{formatCurrency(p.totalBudget)}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Gasto</span><span className="font-semibold text-red-600">{formatCurrency(p.spent)}</span></div>
-                  <div className="flex justify-between border-t border-slate-100 pt-1 mt-1"><span className="text-slate-600 font-medium">Saldo</span><span className={`font-bold ${p.balance >= 0 ? "text-green-700" : "text-red-700"}`}>{formatCurrency(p.balance)}</span></div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Orçamento (parcela)</span>
+                    <span className="font-semibold">{formatCurrency(p.totalBudget)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs py-0.5">
+                    <span className="text-slate-400">NFs registradas</span>
+                    <span className={`font-medium ${Math.abs(p.nfSpent - p.totalBudget) < 0.01 ? "text-green-600" : p.nfSpent > p.totalBudget ? "text-red-500" : "text-amber-600"}`}>
+                      {formatCurrency(p.nfSpent)}
+                      {Math.abs(p.nfSpent - p.totalBudget) < 0.01 && " ✓"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Consumo (saídas)</span>
+                    <span className="font-semibold text-red-600">{formatCurrency(p.spent)}</span>
+                  </div>
+                  <div className="flex justify-between border-t border-slate-100 pt-1 mt-1">
+                    <span className="text-slate-600 font-medium">Saldo</span>
+                    <span className={`font-bold ${p.balance >= 0 ? "text-green-700" : "text-red-700"}`}>{formatCurrency(p.balance)}</span>
+                  </div>
                 </div>
                 <div className="mt-3 w-full bg-slate-100 rounded-full h-2">
                   <div className={`h-2 rounded-full ${p.pct > 90 ? "bg-red-500" : p.pct > 70 ? "bg-yellow-500" : "bg-green-500"}`} style={{ width: `${Math.min(p.pct, 100)}%` }} />
@@ -181,7 +208,7 @@ export default function FinancialPage() {
                   <span className="font-bold text-lg">{formatCurrency(totalBudgetAll)}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block text-xs mb-0.5">Total Gasto</span>
+                  <span className="text-slate-400 block text-xs mb-0.5">Total Consumido</span>
                   <span className="font-bold text-lg text-red-400">{formatCurrency(totalSpentAll)}</span>
                 </div>
                 <div>

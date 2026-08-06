@@ -131,35 +131,8 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  // Saída Extra: cria débito automático no orçamento do programa
-  if (exitData.isExtra && totalValue > 0) {
-    await db.budgetMovement.create({
-      data: {
-        programId: exitData.programId,
-        type: "DEBIT",
-        category: "EXTRA",
-        amount: totalValue,
-        description: `Saída Extra — ${exitData.observations ?? items.map((_, i) => `item ${i + 1}`).join(", ")}`,
-        reference: `EXIT-EXTRA-${exit.id}`,
-        date: new Date(exitData.exitDate),
-      },
-    });
-  }
-
-  // Saída com ressalva (déficit de saldo): cria débito financeiro para o excedente consumido
-  for (const d of deficits) {
-    await db.budgetMovement.create({
-      data: {
-        programId: exitData.programId,
-        type: "DEBIT",
-        category: "EXTRA",
-        amount: d.deficitValue,
-        description: `[RESSALVA] Déficit — ${d.productName}: ${d.deficitQty.toFixed(2)} ${d.unit} além do saldo`,
-        reference: `EXIT-DEFICIT-${exit.id}`,
-        date: new Date(exitData.exitDate),
-      },
-    });
-  }
+  // Saídas são agora rastreadas diretamente no financeiro via exitSpent (sem BudgetMovement)
+  // EXIT-EXTRA e EXIT-DEFICIT foram substituídos pelo modelo de consumo baseado em saídas
 
   return NextResponse.json(exit, { status: 201 });
 }
