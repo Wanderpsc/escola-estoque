@@ -59,7 +59,7 @@ export default function StockExitsPage() {
   const filteredBalance = balance.filter((p) => {
     if (!form.programId) return true;
     return selectedProgramType && p.program?.type === selectedProgramType;
-  }).filter((p) => form.isExtra || p.balance > 0); // extra: mostra todos os produtos mesmo sem saldo
+  });
 
   const selectedProduct = balance.find((p) => p.id === form.productId);
   const totalValue = Number(form.quantity) * Number(form.unitPrice);
@@ -74,9 +74,17 @@ export default function StockExitsPage() {
       toast.error("Preencha todos os campos obrigatórios (*)"); return;
     }
     if (Number(form.quantity) <= 0) { toast.error("Quantidade deve ser maior que zero"); return; }
-    if (!form.isExtra && selectedProduct && Number(form.quantity) > selectedProduct.balance) {
-      toast.error(`Saldo insuficiente. Disponível: ${selectedProduct.balance.toFixed(2)} ${selectedProduct.unit}`); return;
+    const qty = Number(form.quantity);
+    const isDeficit = !form.isExtra && selectedProduct && qty > selectedProduct.balance;
+
+    let baseObs = form.isExtra && form.nfEntryId
+      ? `[NF Ref.: ${entries.find(e => e.id === form.nfEntryId)?.invoiceNumber ?? form.nfEntryId}] ${form.observations}`.trim()
+      : form.observations;
+    if (isDeficit && selectedProduct) {
+      const deficit = qty - selectedProduct.balance;
+      baseObs = `[RESSALVA: saldo insuficiente — déficit de ${deficit.toFixed(2)} ${selectedProduct.unit}]${baseObs ? " " + baseObs : ""}`;
     }
+
     setSaving(true);
     try {
       const res = await fetch("/api/stock/exits", {
@@ -86,16 +94,19 @@ export default function StockExitsPage() {
           programId: form.programId,
           exitDate: form.exitDate,
           reason: form.reason,
-          observations: form.isExtra && form.nfEntryId
-            ? `[NF Ref.: ${entries.find(e => e.id === form.nfEntryId)?.invoiceNumber ?? form.nfEntryId}] ${form.observations}`.trim()
-            : form.observations,
+          observations: baseObs || undefined,
           isExtra: form.isExtra,
-          items: [{ productId: form.productId, quantity: Number(form.quantity), unitPrice: Number(form.unitPrice) }],
+          forceRegister: !!isDeficit,
+          items: [{ productId: form.productId, quantity: qty, unitPrice: Number(form.unitPrice) }],
         }),
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? data.message ?? "Erro ao registrar saida"); return; }
-      toast.success(form.isExtra ? "Saída Extra registrada! Débito financeiro criado automaticamente." : "Saida registrada!");
+      toast.success(
+        form.isExtra ? "Saída Extra registrada! Débito financeiro criado automaticamente."
+        : isDeficit ? "Saída registrada com ressalva! Saldo insuficiente — déficit anotado nas observações."
+        : "Saida registrada!"
+      );
       setModal(false);
       setForm(EMPTY_FORM);
       load();
@@ -203,7 +214,11 @@ export default function StockExitsPage() {
                         <span className="text-xs text-slate-400">{formatDate(exit.exitDate)}</span>
                         <span className="text-xs text-slate-400">por {exit.user.name}</span>
                       </div>
-                      <p className="text-xs text-slate-400 mt-0.5">{exit.items.length} produto(s)</p>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {exit.items.length === 1
+                          ? exit.items[0].product.name
+                          : `${exit.items[0].product.name} +${exit.items.length - 1} outro(s)`}
+                      </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3 shrink-0 ml-2">
@@ -248,15 +263,30 @@ export default function StockExitsPage() {
               onChange={(e) => handleProductChange(e.target.value)}
               options={[
                 { value: "", label: form.programId ? "— Selecione o produto —" : "Selecione o programa primeiro" },
-                ...filteredBalance.map((p) => ({ value: p.id, label: `${p.name} (saldo: ${p.balance.toFixed(2)} ${p.unit})` })),
+                ...filteredBalance.map((p) => ({
+                  value: p.id,
+                  label: p.balance <= 0
+                    ? `${p.name} — SEM SALDO (${p.unit})`
+                    : `${p.name} (saldo: ${p.balance.toFixed(2)} ${p.unit})`,
+                })),
               ]} />
           </div>
           <div className="grid grid-cols-3 gap-4">
             <div>
               <Input label="Quantidade *" type="number" min={0.01} step={0.01} value={form.quantity}
                 onChange={(e) => setForm({ ...form, quantity: Number(e.target.value) })} />
-              {selectedProduct && (
+              {selectedProduct && selectedProduct.balance > 0 && Number(form.quantity) <= selectedProduct.balance && (
                 <p className="text-xs text-slate-400 mt-1">Saldo disponivel: <strong>{selectedProduct.balance.toFixed(2)} {selectedProduct.unit}</strong></p>
+              )}
+              {selectedProduct && selectedProduct.balance <= 0 && (
+                <div className="mt-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700">
+                  <strong>⚠️ Estoque ESGOTADO.</strong> Esta saída será registrada com ressalva. O valor (<strong>{formatCurrency(Number(form.quantity) * Number(form.unitPrice))}</strong>) será abatido do orçamento do programa e poderá causar déficit em outros produtos ao final do período.
+                </div>
+              )}
+              {selectedProduct && selectedProduct.balance > 0 && Number(form.quantity) > selectedProduct.balance && (
+                <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700">
+                  <strong>⚠️ Estoque se esgotando.</strong> Saldo disponível: <strong>{selectedProduct.balance.toFixed(2)} {selectedProduct.unit}</strong>. O excedente de <strong>{(Number(form.quantity) - selectedProduct.balance).toFixed(2)} {selectedProduct.unit}</strong> ({formatCurrency((Number(form.quantity) - selectedProduct.balance) * Number(form.unitPrice))}) será abatido do total do programa e poderá causar déficit. A saída será registrada com ressalva.
+                </div>
               )}
             </div>
             <Input label="Valor Unitario (R$)" type="number" min={0} step={0.01} value={form.unitPrice}

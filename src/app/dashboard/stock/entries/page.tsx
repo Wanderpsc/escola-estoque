@@ -235,7 +235,12 @@ export default function StockEntriesPage() {
                         <span className="text-sm text-slate-600">{entry.supplier.name}</span>
                         <span className="text-xs text-slate-400">{formatDate(entry.invoiceDate)}</span>
                       </div>
-                      <p className="text-xs text-slate-400 mt-0.5">{entry.items.length} produto(s) &middot; por {entry.user.name}</p>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {entry.items.length === 1
+                          ? entry.items[0].product.name
+                          : `${entry.items[0].product.name} +${entry.items.length - 1} outro(s)`}
+                        {" · por "}{entry.user.name}
+                      </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3 shrink-0 ml-2">

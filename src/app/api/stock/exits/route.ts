@@ -17,6 +17,7 @@ const exitSchema = z.object({
   observations: z.string().optional(),
   items: z.array(exitItemSchema).min(1),
   isExtra: z.boolean().optional().default(false),
+  forceRegister: z.boolean().optional().default(false),
 });
 
 export async function GET(req: NextRequest) {
@@ -70,11 +71,11 @@ export async function POST(req: NextRequest) {
   const parsed = exitSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
-  const { items, ...exitData } = parsed.data;
+  const { items, forceRegister, ...exitData } = parsed.data;
   const totalValue = items.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
 
-  // Verificar saldo antes de registrar saída (pulado para saídas extra)
-  if (!exitData.isExtra) {
+  // Verificar saldo (pulado para saídas extra ou forceRegister=true com ressalva)
+  if (!exitData.isExtra && !forceRegister) {
     for (const item of items) {
       const product = await db.product.findUnique({
         where: { id: item.productId },
