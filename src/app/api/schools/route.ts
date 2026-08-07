@@ -29,7 +29,7 @@ export async function GET() {
     return NextResponse.json(school ? [school] : []);
   }
 
-  const schools = await db.school.findMany({ orderBy: { name: "asc" } });
+  const schools = await db.school.findMany({ where: { active: true }, orderBy: { name: "asc" } });
   return NextResponse.json(schools);
 }
 

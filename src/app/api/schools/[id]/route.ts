@@ -52,6 +52,11 @@ export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "Não autorizado" }, { status: 403 });
   }
   const { id } = await params;
-  await db.school.update({ where: { id }, data: { active: false } });
+  try {
+    await db.school.delete({ where: { id } });
+  } catch {
+    // FK constraint — fallback to soft-delete
+    await db.school.update({ where: { id }, data: { active: false } });
+  }
   return NextResponse.json({ ok: true });
 }
