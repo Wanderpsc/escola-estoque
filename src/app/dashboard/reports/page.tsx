@@ -3,11 +3,11 @@
 import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useSession } from "next-auth/react";
-import { BarChart3, FileDown, Package, DollarSign, ArrowDownLeft, ArrowUpRight, AlertTriangle, Settings, ImageIcon, Save, ShoppingBag, Printer, ShoppingCart } from "lucide-react";
+import { BarChart3, FileDown, Package, DollarSign, ArrowDownLeft, ArrowUpRight, Settings, ImageIcon, Save, ShoppingBag, Printer, ShoppingCart } from "lucide-react";
 import { PageHeader, Button, Select, Badge } from "@/components/ui";
 import { formatCurrency, formatDate, PROGRAM_TYPES, EXIT_REASONS } from "@/lib/utils";
 
-type ReportType = "balance" | "entries" | "exits" | "financial" | "extra_exits" | "purchases" | "needs_purchase";
+type ReportType = "balance" | "entries" | "exits" | "financial" | "purchases" | "needs_purchase";
 
 export default function ReportsPage() {
   const { data: session } = useSession();
@@ -86,7 +86,6 @@ export default function ReportsPage() {
         entries:        q ? `/api/stock/entries?${q}` : "/api/stock/entries",
         exits:          q ? `/api/stock/exits?${q}`   : "/api/stock/exits",
         financial:      q ? `/api/financial/movements?${q}` : "/api/financial/movements",
-        extra_exits:    `/api/stock/exits?extra=true${qs}`,
         purchases:      `/api/stock/entries?purchases=true${qs}`,
         needs_purchase: q ? `/api/stock/balance?${q}` : "/api/stock/balance",
       };
@@ -124,7 +123,6 @@ export default function ReportsPage() {
         entries: "Relatório de Entradas (Notas Fiscais)",
         exits: "Relatório de Saídas",
         financial: "Relatório Financeiro",
-        extra_exits: "Relatório de Saídas Extras (sem NF)",
         purchases: "Relatório de Compras Informais",
         needs_purchase: "Lista de Compras — Produtos Abaixo do Estoque Mínimo",
       };
@@ -246,29 +244,6 @@ export default function ReportsPage() {
         const yP = (doc as any).lastAutoTable.finalY + 8;
         doc.setFont("helvetica", "bold");
         doc.text(`Total Compras Informais: ${formatCurrency(totalP)}`, 14, yP);
-      } else if (type === "extra_exits") {
-        autoTable(doc, {
-          startY: 40,
-          head: [["Data", "Programa", "Produto", "Qtd", "Vl. Unit.", "Total", "Observações", "Usuário"]],
-          body: data.flatMap((r: any) =>
-            r.items.map((i: any) => [
-              formatDate(r.exitDate),
-              PROGRAM_TYPES[r.program?.type as keyof typeof PROGRAM_TYPES]?.label ?? r.program?.type ?? "",
-              `${i.product.name} (${i.product.unit})`,
-              i.quantity.toFixed(2),
-              formatCurrency(i.unitPrice),
-              formatCurrency(i.totalPrice),
-              r.observations ?? "",
-              r.user.name,
-            ])
-          ),
-          styles: { fontSize: 7 },
-          headStyles: { fillColor: [234, 88, 12] },
-        });
-        const totalX = data.reduce((s: number, r: any) => s + r.items.reduce((ss: number, i: any) => ss + i.totalPrice, 0), 0);
-        const yX = (doc as any).lastAutoTable.finalY + 8;
-        doc.setFont("helvetica", "bold");
-        doc.text(`Total Saídas Extras: ${formatCurrency(totalX)}`, 14, yX);
       } else if (type === "needs_purchase") {
         const totalEstimated = data.reduce((s: number, r: any) => s + r.needed * (r.avgPrice ?? 0), 0);
         const zerados = data.filter((r: any) => r.balance <= 0).length;
@@ -399,7 +374,6 @@ export default function ReportsPage() {
     { value: "entries", label: "Entradas (Notas Fiscais)", icon: ArrowUpRight, desc: "Histórico de entradas com dados da NF" },
     { value: "exits", label: "Saídas de Estoque", icon: ArrowDownLeft, desc: "Histórico de saídas e consumo" },
     { value: "financial", label: "Movimentações Financeiras", icon: DollarSign, desc: "Créditos e débitos por programa" },
-    { value: "extra_exits", label: "Saídas Extras (sem NF)", icon: AlertTriangle, desc: "Saídas de produtos não registrados em nota fiscal" },
     { value: "purchases", label: "Compras Informais", icon: ShoppingBag, desc: "Compras realizadas sem nota fiscal formal" },
     { value: "needs_purchase", label: "Lista de Compras", icon: ShoppingCart, desc: "Produtos abaixo do estoque mínimo que precisam ser comprados" },
   ];
@@ -611,34 +585,6 @@ export default function ReportsPage() {
                 <div className="px-5 py-3 bg-red-50 border-t-2 border-red-100 flex justify-between items-center">
                   <span className="text-xs text-slate-500">{data.length} saída(s)</span>
                   <span className="text-sm font-bold text-red-700">Total saídas: {formatCurrency(data.reduce((s: number, r: any) => s + r.items.reduce((ss: number, i: any) => ss + i.totalPrice, 0), 0))}</span>
-                </div>
-              </>
-            )}
-            {type === "extra_exits" && (
-              <>
-                <table className="w-full text-sm">
-                  <thead><tr className="bg-slate-50">
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Data</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Programa</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Produto</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 border-b">Qtd</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 border-b">Valor</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Obs.</th>
-                  </tr></thead>
-                  <tbody>{data.slice(0, 20).flatMap((r: any) => r.items.map((i: any, idx: number) => (
-                    <tr key={`${r.id}-${idx}`} className="border-b border-slate-50 hover:bg-slate-50">
-                      <td className="px-4 py-2.5 text-slate-500">{formatDate(r.exitDate)}</td>
-                      <td className="px-4 py-2.5 text-xs text-slate-500">{PROGRAM_TYPES[r.program?.type as keyof typeof PROGRAM_TYPES]?.label}</td>
-                      <td className="px-4 py-2.5 font-medium text-slate-700">{i.product.name} <span className="text-slate-400">({i.product.unit})</span></td>
-                      <td className="px-4 py-2.5 text-right">{i.quantity.toFixed(2)}</td>
-                      <td className="px-4 py-2.5 text-right font-semibold text-orange-700">{formatCurrency(i.totalPrice)}</td>
-                      <td className="px-4 py-2.5 text-xs text-slate-400 italic">{r.observations ?? "—"}</td>
-                    </tr>
-                  )))}</tbody>
-                </table>
-                <div className="px-5 py-3 bg-orange-50 border-t-2 border-orange-100 flex justify-between items-center">
-                  <span className="text-xs text-slate-500">{data.length} saída(s) extra(s)</span>
-                  <span className="text-sm font-bold text-orange-700">Total saídas extras: {formatCurrency(data.reduce((s: number, r: any) => s + r.items.reduce((ss: number, i: any) => ss + i.totalPrice, 0), 0))}</span>
                 </div>
               </>
             )}
