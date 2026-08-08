@@ -3,11 +3,11 @@
 import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useSession } from "next-auth/react";
-import { BarChart3, FileDown, Package, DollarSign, ArrowDownLeft, ArrowUpRight, AlertTriangle, Settings, ImageIcon, Save, ShoppingBag, Printer } from "lucide-react";
+import { BarChart3, FileDown, Package, DollarSign, ArrowDownLeft, ArrowUpRight, AlertTriangle, Settings, ImageIcon, Save, ShoppingBag, Printer, ShoppingCart } from "lucide-react";
 import { PageHeader, Button, Select, Badge } from "@/components/ui";
 import { formatCurrency, formatDate, PROGRAM_TYPES, EXIT_REASONS } from "@/lib/utils";
 
-type ReportType = "balance" | "entries" | "exits" | "financial" | "extra_exits" | "purchases";
+type ReportType = "balance" | "entries" | "exits" | "financial" | "extra_exits" | "purchases" | "needs_purchase";
 
 export default function ReportsPage() {
   const { data: session } = useSession();
@@ -82,16 +82,31 @@ export default function ReportsPage() {
       const q  = p.toString();
       const qs = q ? `&${q}` : "";
       const endpoints: Record<ReportType, string> = {
-        balance:    q ? `/api/stock/balance?${q}` : "/api/stock/balance",
-        entries:    q ? `/api/stock/entries?${q}` : "/api/stock/entries",
-        exits:      q ? `/api/stock/exits?${q}`   : "/api/stock/exits",
-        financial:  q ? `/api/financial/movements?${q}` : "/api/financial/movements",
-        extra_exits: `/api/stock/exits?extra=true${qs}`,
-        purchases:   `/api/stock/entries?purchases=true${qs}`,
+        balance:        q ? `/api/stock/balance?${q}` : "/api/stock/balance",
+        entries:        q ? `/api/stock/entries?${q}` : "/api/stock/entries",
+        exits:          q ? `/api/stock/exits?${q}`   : "/api/stock/exits",
+        financial:      q ? `/api/financial/movements?${q}` : "/api/financial/movements",
+        extra_exits:    `/api/stock/exits?extra=true${qs}`,
+        purchases:      `/api/stock/entries?purchases=true${qs}`,
+        needs_purchase: q ? `/api/stock/balance?${q}` : "/api/stock/balance",
       };
       const res = await fetch(endpoints[type]);
-      if (res.ok) setData(await res.json());
-      else toast.error("Erro ao gerar relatório");
+      if (!res.ok) { toast.error("Erro ao gerar relatório"); return; }
+      const json = await res.json();
+      // Lista de compras: filtra apenas produtos abaixo do mínimo, ordena por urgência
+      if (type === "needs_purchase") {
+        const deficit = json
+          .filter((r: any) => r.balance < r.minStock || r.balance <= 0)
+          .map((r: any) => ({ ...r, needed: Math.max(r.minStock - r.balance, 0) }))
+          .sort((a: any, b: any) => {
+            const urgA = a.balance <= 0 ? 0 : 1;
+            const urgB = b.balance <= 0 ? 0 : 1;
+            return urgA !== urgB ? urgA - urgB : a.needed - b.needed;
+          });
+        setData(deficit);
+      } else {
+        setData(json);
+      }
     } finally { setLoading(false); }
   }
 
@@ -111,6 +126,7 @@ export default function ReportsPage() {
         financial: "Relatório Financeiro",
         extra_exits: "Relatório de Saídas Extras (sem NF)",
         purchases: "Relatório de Compras Informais",
+        needs_purchase: "Lista de Compras — Produtos Abaixo do Estoque Mínimo",
       };
 
       // Cabeçalho personalizado
@@ -253,6 +269,42 @@ export default function ReportsPage() {
         const yX = (doc as any).lastAutoTable.finalY + 8;
         doc.setFont("helvetica", "bold");
         doc.text(`Total Saídas Extras: ${formatCurrency(totalX)}`, 14, yX);
+      } else if (type === "needs_purchase") {
+        const totalEstimated = data.reduce((s: number, r: any) => s + r.needed * (r.avgPrice ?? 0), 0);
+        const zerados = data.filter((r: any) => r.balance <= 0).length;
+        autoTable(doc, {
+          startY: 38,
+          head: [["Produto", "NCM", "Programa", "Unidade", "Saldo Atual", "Est. Mínimo", "Qtd. a Comprar", "Preço Médio", "Valor Estimado", "Prioridade"]],
+          body: data.map((r: any) => [
+            r.name,
+            r.ncmCode,
+            PROGRAM_TYPES[r.program?.type as keyof typeof PROGRAM_TYPES]?.label ?? r.program?.type ?? "",
+            r.unit,
+            r.balance.toFixed(2),
+            r.minStock.toFixed(2),
+            r.needed.toFixed(2),
+            formatCurrency(r.avgPrice ?? 0),
+            formatCurrency(r.needed * (r.avgPrice ?? 0)),
+            r.balance <= 0 ? "URGENTE" : "BAIXO",
+          ]),
+          styles: { fontSize: 7 },
+          headStyles: { fillColor: [124, 58, 237] },
+          alternateRowStyles: { fillColor: [248, 250, 252] },
+          didParseCell: (data) => {
+            if (data.column.index === 9) {
+              if (data.cell.raw === "URGENTE") data.cell.styles.textColor = [220, 38, 38];
+              if (data.cell.raw === "BAIXO")   data.cell.styles.textColor = [161, 98, 7];
+            }
+          },
+        });
+        const y2 = (doc as any).lastAutoTable.finalY + 8;
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(220, 38, 38);
+        doc.text(`${zerados} produto(s) ZERADO(S)`, 14, y2);
+        doc.setTextColor(124, 58, 237);
+        doc.text(`Valor estimado para reposição: ${formatCurrency(totalEstimated)}`, 80, y2);
+        doc.setTextColor(0, 0, 0);
       } else {
         autoTable(doc, {
           startY: 38,
@@ -317,6 +369,7 @@ export default function ReportsPage() {
     { value: "financial", label: "Movimentações Financeiras", icon: DollarSign, desc: "Créditos e débitos por programa" },
     { value: "extra_exits", label: "Saídas Extras (sem NF)", icon: AlertTriangle, desc: "Saídas de produtos não registrados em nota fiscal" },
     { value: "purchases", label: "Compras Informais", icon: ShoppingBag, desc: "Compras realizadas sem nota fiscal formal" },
+    { value: "needs_purchase", label: "Lista de Compras", icon: ShoppingCart, desc: "Produtos abaixo do estoque mínimo que precisam ser comprados" },
   ];
 
   return (
@@ -618,7 +671,50 @@ export default function ReportsPage() {
               );
             })()}
           </div>
-          {data.length > 20 && <p className="px-5 py-3 text-xs text-slate-400 border-t">Mostrando 20 de {data.length} registros. O PDF conterá todos.</p>}
+{type === "needs_purchase" && (() => {
+              const totalEst = data.reduce((s: number, r: any) => s + r.needed * (r.avgPrice ?? 0), 0);
+              const zerados = data.filter((r: any) => r.balance <= 0).length;
+              return (
+                <>
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-slate-50">
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Produto</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Programa</th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 border-b">Unidade</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 border-b">Saldo Atual</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 border-b">Est. Mínimo</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 border-b font-bold text-violet-700">Qtd. a Comprar</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 border-b">Preço Médio</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 border-b">Valor Estimado</th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 border-b">Prioridade</th>
+                    </tr></thead>
+                    <tbody>{data.map((r: any) => (
+                      <tr key={r.id} className={`border-b hover:bg-slate-50 ${r.balance <= 0 ? "bg-red-50/40" : "bg-amber-50/30"}`}>
+                        <td className="px-4 py-2.5 font-medium text-slate-700">{r.name}<div className="text-xs font-mono text-slate-400">{r.ncmCode}</div></td>
+                        <td className="px-4 py-2.5 text-xs text-slate-500">{PROGRAM_TYPES[r.program?.type as keyof typeof PROGRAM_TYPES]?.label ?? r.program?.name}</td>
+                        <td className="px-4 py-2.5 text-center text-xs font-mono text-slate-500">{r.unit}</td>
+                        <td className={`px-4 py-2.5 text-right font-semibold ${r.balance <= 0 ? "text-red-600" : "text-amber-600"}`}>{r.balance.toFixed(2)}</td>
+                        <td className="px-4 py-2.5 text-right text-slate-500">{r.minStock.toFixed(2)}</td>
+                        <td className="px-4 py-2.5 text-right font-bold text-violet-700">{r.needed.toFixed(2)}</td>
+                        <td className="px-4 py-2.5 text-right text-slate-500">{formatCurrency(r.avgPrice ?? 0)}</td>
+                        <td className="px-4 py-2.5 text-right font-semibold text-violet-800">{formatCurrency(r.needed * (r.avgPrice ?? 0))}</td>
+                        <td className="px-4 py-2.5 text-center">
+                          <Badge color={r.balance <= 0 ? "red" : "yellow"}>{r.balance <= 0 ? "URGENTE" : "BAIXO"}</Badge>
+                        </td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                  <div className="px-5 py-3 bg-violet-50 border-t-2 border-violet-100 flex flex-wrap gap-6 items-center justify-between">
+                    <div className="flex gap-4 text-xs">
+                      <span><span className="font-semibold text-red-600">{zerados}</span> produto(s) zerado(s)</span>
+                      <span><span className="font-semibold text-amber-600">{data.length - zerados}</span> produto(s) abaixo do mínimo</span>
+                    </div>
+                    <span className="text-sm font-bold text-violet-700">Valor estimado para reposição: {formatCurrency(totalEst)}</span>
+                  </div>
+                </>
+              );
+            })()}
+            {data.length > 20 && type !== "needs_purchase" && <p className="px-5 py-3 text-xs text-slate-400 border-t">Mostrando 20 de {data.length} registros. O PDF conterá todos.</p>}
         </div>
       )}
     </div>
