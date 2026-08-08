@@ -306,10 +306,14 @@ export default function ReportsPage() {
         doc.text(`Valor estimado para reposição: ${formatCurrency(totalEstimated)}`, 80, y2);
         doc.setTextColor(0, 0, 0);
       } else {
+        // EXIT-EXTRA-* são informacionais (já contabilizados em exitSpent no saldo financeiro)
+        const mainData = data.filter((r: any) => !r.reference?.startsWith("EXIT-"));
+        const exitExtraData = data.filter((r: any) => r.reference?.startsWith("EXIT-"));
+
         autoTable(doc, {
           startY: 38,
           head: [["Data", "Programa", "Tipo", "Descrição", "Referência", "Valor"]],
-          body: data.map((r) => [
+          body: mainData.map((r: any) => [
             formatDate(r.date), r.program?.name ?? "",
             r.type === "CREDIT" ? "CRÉDITO" : "DÉBITO",
             r.description, r.reference ?? "",
@@ -324,8 +328,8 @@ export default function ReportsPage() {
             }
           },
         });
-        const totalCr = data.filter((r: any) => r.type === "CREDIT").reduce((s: number, r: any) => s + r.amount, 0);
-        const totalDb = data.filter((r: any) => r.type === "DEBIT").reduce((s: number, r: any) => s + r.amount, 0);
+        const totalCr = mainData.filter((r: any) => r.type === "CREDIT").reduce((s: number, r: any) => s + r.amount, 0);
+        const totalDb = mainData.filter((r: any) => r.type === "DEBIT").reduce((s: number, r: any) => s + r.amount, 0);
         const netFin = totalCr - totalDb;
         const yFin = (doc as any).lastAutoTable.finalY + 8;
         doc.setFontSize(9);
@@ -335,6 +339,34 @@ export default function ReportsPage() {
         doc.setTextColor(netFin >= 0 ? 22 : 220, netFin >= 0 ? 163 : 38, netFin >= 0 ? 74 : 38);
         doc.text(`Saldo Líquido: ${formatCurrency(netFin)}`, 205, yFin);
         doc.setTextColor(0, 0, 0);
+
+        // Seção informativa: saídas extras (contabilizadas via consumo de estoque, não duplicar)
+        if (exitExtraData.length > 0) {
+          const yExtra = (doc as any).lastAutoTable.finalY + 20;
+          doc.setFontSize(9);
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(234, 88, 12);
+          doc.text(`Memorando — Saídas Extras (${exitExtraData.length} reg.) — já abatidas via consumo de estoque`, 14, yExtra);
+          doc.setTextColor(0, 0, 0);
+          autoTable(doc, {
+            startY: yExtra + 4,
+            head: [["Data", "Programa", "Produto / Descrição", "Referência", "Valor"]],
+            body: exitExtraData.map((r: any) => [
+              formatDate(r.date), r.program?.name ?? "",
+              r.description, r.reference ?? "",
+              formatCurrency(r.amount),
+            ]),
+            styles: { fontSize: 7 },
+            headStyles: { fillColor: [234, 88, 12] },
+          });
+          const totalExtra = exitExtraData.reduce((s: number, r: any) => s + r.amount, 0);
+          const yET = (doc as any).lastAutoTable.finalY + 6;
+          doc.setFontSize(8);
+          doc.setFont("helvetica", "italic");
+          doc.setTextColor(107, 114, 128);
+          doc.text(`Total saídas extras (informativo): ${formatCurrency(totalExtra)}`, 14, yET);
+          doc.setTextColor(0, 0, 0);
+        }
       }
 
       // Rodapé
@@ -639,9 +671,13 @@ export default function ReportsPage() {
               </>
             )}
             {type === "financial" && (() => {
-              const cr = data.filter((r: any) => r.type === "CREDIT").reduce((s: number, r: any) => s + r.amount, 0);
-              const db = data.filter((r: any) => r.type === "DEBIT").reduce((s: number, r: any) => s + r.amount, 0);
+              // EXIT-EXTRA-* são informacionais (já contabilizados em exitSpent no saldo)
+              const mainMov = data.filter((r: any) => !r.reference?.startsWith("EXIT-"));
+              const exitExtraMov = data.filter((r: any) => r.reference?.startsWith("EXIT-"));
+              const cr = mainMov.filter((r: any) => r.type === "CREDIT").reduce((s: number, r: any) => s + r.amount, 0);
+              const db = mainMov.filter((r: any) => r.type === "DEBIT").reduce((s: number, r: any) => s + r.amount, 0);
               const net = cr - db;
+              const totalExtra = exitExtraMov.reduce((s: number, r: any) => s + r.amount, 0);
               return (
                 <>
                   <table className="w-full text-sm">
@@ -652,7 +688,7 @@ export default function ReportsPage() {
                       <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Descrição</th>
                       <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 border-b">Valor</th>
                     </tr></thead>
-                    <tbody>{data.slice(0, 20).map((r: any) => (
+                    <tbody>{mainMov.slice(0, 20).map((r: any) => (
                       <tr key={r.id} className="border-b border-slate-50 hover:bg-slate-50">
                         <td className="px-4 py-2.5">{formatDate(r.date)}</td>
                         <td className="px-4 py-2.5 text-xs text-slate-500">{r.program?.name}</td>
@@ -667,6 +703,30 @@ export default function ReportsPage() {
                     <span className="text-sm font-semibold text-red-600">Débitos: {formatCurrency(db)}</span>
                     <span className={`text-sm font-bold ${net >= 0 ? "text-green-800" : "text-red-700"}`}>Saldo líquido: {formatCurrency(net)}</span>
                   </div>
+                  {exitExtraMov.length > 0 && (
+                    <div className="border-t-4 border-orange-200">
+                      <div className="px-5 py-2 bg-orange-50 flex items-center justify-between">
+                        <span className="text-xs font-semibold text-orange-700">Memorando — Saídas Extras ({exitExtraMov.length} reg.) — já abatidas via consumo de estoque</span>
+                        <span className="text-xs font-semibold text-orange-600">Total informativo: {formatCurrency(totalExtra)}</span>
+                      </div>
+                      <table className="w-full text-xs">
+                        <thead><tr className="bg-orange-50/60">
+                          <th className="px-4 py-2 text-left font-semibold text-orange-700 border-b border-orange-100">Data</th>
+                          <th className="px-4 py-2 text-left font-semibold text-orange-700 border-b border-orange-100">Programa</th>
+                          <th className="px-4 py-2 text-left font-semibold text-orange-700 border-b border-orange-100">Produto</th>
+                          <th className="px-4 py-2 text-right font-semibold text-orange-700 border-b border-orange-100">Valor</th>
+                        </tr></thead>
+                        <tbody>{exitExtraMov.slice(0, 10).map((r: any) => (
+                          <tr key={r.id} className="border-b border-orange-50 hover:bg-orange-50/40">
+                            <td className="px-4 py-1.5 text-slate-500">{formatDate(r.date)}</td>
+                            <td className="px-4 py-1.5 text-slate-500">{r.program?.name}</td>
+                            <td className="px-4 py-1.5 text-slate-600">{r.description}</td>
+                            <td className="px-4 py-1.5 text-right text-orange-700 font-semibold">{formatCurrency(r.amount)}</td>
+                          </tr>
+                        ))}</tbody>
+                      </table>
+                    </div>
+                  )}
                 </>
               );
             })()}
