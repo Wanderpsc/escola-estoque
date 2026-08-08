@@ -34,7 +34,9 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const programId = url.searchParams.get("programId");
 
-  const where: any = role === "SUPER_ADMIN" ? {} : { program: { schoolId: schoolId ?? "" } };
+  const where: any = role === "SUPER_ADMIN" ? {} : role === "SUPPLIER"
+    ? { supplierId: (session.user as any).supplierId ?? "" }
+    : { program: { schoolId: schoolId ?? "" } };
   if (programId) where.programId = programId;
   const purchases = url.searchParams.get("purchases");
   if (purchases === "true") where.isPurchase = true;

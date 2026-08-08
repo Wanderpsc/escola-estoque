@@ -6,6 +6,7 @@ const deliveryInclude = {
   supplier: { select: { id: true, name: true } },
   school: { select: { id: true, name: true } },
   program: { select: { id: true, name: true, type: true } },
+  stockEntry: { select: { id: true, invoiceNumber: true, invoiceSeries: true, invoiceDate: true, totalValue: true, programId: true, program: { select: { name: true, type: true } } } },
   createdBy: { select: { id: true, name: true } },
   confirmedBy: { select: { id: true, name: true } },
   items: {
@@ -43,7 +44,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
 
   const { id } = await params;
-  const order = await db.deliveryOrder.findUnique({ where: { id }, include: { items: true } });
+  const order = await db.deliveryOrder.findUnique({ where: { id }, include: { items: true, stockEntry: { select: { programId: true, invoiceNumber: true } } } });
   if (!order) return NextResponse.json({ error: "Entrega não encontrada" }, { status: 404 });
 
   if (role !== "SUPER_ADMIN" && order.schoolId !== schoolId) {
@@ -101,8 +102,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     // ── Auto-cria StockEntry se houver ao menos 1 item entregue ──
     const deliveredItems = confirmedItems.filter((ci) => ci.quantityDelivered > 0);
     if (deliveredItems.length > 0) {
-      // Para StockEntry precisamos de programId — usa o da ordem ou do primeiro produto
-      let programId = order.programId;
+      // Prefere programId da NF de referência; depois da ordem; depois do produto
+      let programId = order.stockEntry?.programId ?? order.programId;
       if (!programId) {
         const firstItem = order.items[0];
         const product = await db.product.findUnique({
@@ -113,12 +114,30 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       }
 
       if (programId) {
-        const totalValue = deliveredItems.reduce((sum, ci) => {
+        const normalItems = deliveredItems.filter((ci) => {
+          const orig = order.items.find((i) => i.id === ci.id);
+          return !orig?.isExtra;
+        });
+        const extraItems = deliveredItems.filter((ci) => {
+          const orig = order.items.find((i) => i.id === ci.id);
+          return !!orig?.isExtra;
+        });
+
+        const totalNormal = normalItems.reduce((sum, ci) => {
           const orig = order.items.find((i) => i.id === ci.id);
           return sum + ci.quantityDelivered * (orig?.unitPrice ?? 0);
         }, 0);
+        const totalExtra = extraItems.reduce((sum, ci) => {
+          const orig = order.items.find((i) => i.id === ci.id);
+          return sum + ci.quantityDelivered * (orig?.unitPrice ?? 0);
+        }, 0);
+        const totalValue = totalNormal + totalExtra;
 
-        // Cria StockEntry (Nota Fiscal simulada)
+        // Número da NF de referência, se houver
+        const nfRef = order.stockEntry?.invoiceNumber
+          ? ` (NF Ref.: ${order.stockEntry.invoiceNumber})`
+          : "";
+
         await db.stockEntry.create({
           data: {
             invoiceNumber: `DEL-${id.slice(-8).toUpperCase()}`,
@@ -127,7 +146,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
             supplierId: order.supplierId,
             programId,
             userId,
-            observations: `Entrega confirmada - ${order.notes ?? ""}`.trim(),
+            observations: `Entrega confirmada${nfRef} — ${order.notes ?? ""}`.trim(),
             items: {
               create: deliveredItems.map((ci) => {
                 const orig = order.items.find((i) => i.id === ci.id)!;
@@ -136,19 +155,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
                   quantity: ci.quantityDelivered,
                   unitPrice: orig.unitPrice,
                   totalPrice: ci.quantityDelivered * orig.unitPrice,
+                  isExtra: !!orig.isExtra,
                 };
               }),
             },
           },
         });
 
-        // Cria BudgetMovement DEBIT (desconta do orçamento do programa)
         await db.budgetMovement.create({
           data: {
             programId,
             type: "DEBIT",
             amount: totalValue,
-            description: `Entrega confirmada — Fornecedor: ${updated.supplier.name}`,
+            description: `Entrega confirmada${nfRef} — Fornecedor: ${updated.supplier.name}${totalExtra > 0 ? ` (inclui R$ ${totalExtra.toFixed(2)} extras com ressalva)` : ""}`,
             reference: `DEL-${id.slice(-8).toUpperCase()}`,
             date: order.deliveryDate,
           },

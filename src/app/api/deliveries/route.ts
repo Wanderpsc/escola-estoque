@@ -6,6 +6,7 @@ const deliveryInclude = {
   supplier: { select: { id: true, name: true } },
   school: { select: { id: true, name: true } },
   program: { select: { id: true, name: true, type: true } },
+  stockEntry: { select: { id: true, invoiceNumber: true, invoiceSeries: true, invoiceDate: true, totalValue: true, programId: true, program: { select: { name: true, type: true } } } },
   createdBy: { select: { id: true, name: true } },
   confirmedBy: { select: { id: true, name: true } },
   items: {
@@ -27,8 +28,10 @@ export async function GET(req: NextRequest) {
   let where: any = {};
 
   if (role === "SUPPLIER") {
-    // Fornecedor vê apenas suas próprias ordens
-    where.createdById = userId;
+    // Fornecedor vê apenas entregas vinculadas ao seu supplierId
+    const supplierId = (session.user as any).supplierId;
+    if (!supplierId) return NextResponse.json([], { status: 200 });
+    where.supplierId = supplierId;
   } else if (role !== "SUPER_ADMIN") {
     // Equipe da escola vê todas as ordens da escola
     where.schoolId = schoolId ?? "";
@@ -60,7 +63,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { supplierId, schoolId, programId, deliveryDate, notes, items } = body;
+  const { supplierId, schoolId, programId, stockEntryId, deliveryDate, notes, items } = body;
 
   if (!supplierId || !schoolId || !deliveryDate || !Array.isArray(items) || items.length === 0) {
     return NextResponse.json(
@@ -69,11 +72,17 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Se SUPPLIER, valida que o supplierId pertence ao usuário
+  // Se SUPPLIER, valida que o supplierId pertence ao usuário e que a NF é sua
   if (role === "SUPPLIER") {
-    const user = await db.user.findUnique({ where: { id: userId }, select: { supplierId: true, schoolId: true } });
+    const user = await db.user.findUnique({ where: { id: userId }, select: { supplierId: true } });
     if (!user?.supplierId || user.supplierId !== supplierId) {
       return NextResponse.json({ error: "Fornecedor inválido para este usuário" }, { status: 403 });
+    }
+    if (stockEntryId) {
+      const entry = await db.stockEntry.findUnique({ where: { id: stockEntryId }, select: { supplierId: true } });
+      if (!entry || entry.supplierId !== supplierId) {
+        return NextResponse.json({ error: "NF não pertence a este fornecedor" }, { status: 403 });
+      }
     }
   }
 
@@ -82,6 +91,7 @@ export async function POST(req: NextRequest) {
       supplierId,
       schoolId,
       programId: programId || null,
+      stockEntryId: stockEntryId || null,
       createdById: userId,
       deliveryDate: new Date(deliveryDate),
       notes: notes || null,
@@ -91,6 +101,8 @@ export async function POST(req: NextRequest) {
           quantityOrdered: Number(i.quantityOrdered),
           unitPrice: Number(i.unitPrice),
           totalPrice: Number(i.quantityOrdered) * Number(i.unitPrice),
+          isExtra: !!i.isExtra,
+          extraNote: i.extraNote || null,
         })),
       },
     },

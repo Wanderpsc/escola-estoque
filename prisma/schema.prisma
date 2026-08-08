@@ -172,12 +172,13 @@ model StockEntry {
   userId        String
   user          User     @relation(fields: [userId], references: [id])
   observations  String?
-  isPurchase    Boolean  @default(false) // compra informal sem NF formal — gera débito financeiro automático
+  isPurchase    Boolean  @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  items EntryItem[]
+  items          EntryItem[]
+  deliveryOrders DeliveryOrder[]
 }
 
 model EntryItem {
@@ -314,18 +315,20 @@ model DeliveryOrder {
   supplierId    String
   schoolId      String
   programId     String?
+  stockEntryId  String?   // NF de referência autorizada pelo admin
   createdById   String
-  status        String    @default("PENDING") // PENDING | CONFIRMED | PARTIAL | CANCELLED
+  status        String    @default("PENDING")
   deliveryDate  DateTime
   notes         String?
   confirmedById String?
   confirmedAt   DateTime?
 
-  supplier    Supplier  @relation(fields: [supplierId], references: [id])
-  school      School    @relation(fields: [schoolId], references: [id])
-  program     Program?  @relation(fields: [programId], references: [id])
-  createdBy   User      @relation("DeliveryCreatedBy", fields: [createdById], references: [id])
-  confirmedBy User?     @relation("DeliveryConfirmedBy", fields: [confirmedById], references: [id])
+  supplier    Supplier    @relation(fields: [supplierId], references: [id])
+  school      School      @relation(fields: [schoolId], references: [id])
+  program     Program?    @relation(fields: [programId], references: [id])
+  stockEntry  StockEntry? @relation(fields: [stockEntryId], references: [id])
+  createdBy   User        @relation("DeliveryCreatedBy", fields: [createdById], references: [id])
+  confirmedBy User?       @relation("DeliveryConfirmedBy", fields: [confirmedById], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -340,9 +343,11 @@ model DeliveryOrderItem {
   productId         String
   product           Product       @relation(fields: [productId], references: [id])
   quantityOrdered   Float
-  quantityDelivered Float?        // preenchido pelo diretor ao confirmar
+  quantityDelivered Float?
   unitPrice         Float
   totalPrice        Float
+  isExtra           Boolean       @default(false) // item fora da NF de referência
+  extraNote         String?                        // justificativa obrigatória para itens extras
 
   createdAt DateTime @default(now())
 }

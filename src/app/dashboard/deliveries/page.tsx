@@ -21,6 +21,8 @@ interface OrderItem {
   quantityDelivered: number | null;
   unitPrice: number;
   totalPrice: number;
+  isExtra: boolean;
+  extraNote: string | null;
 }
 
 interface DeliveryOrder {
@@ -33,6 +35,7 @@ interface DeliveryOrder {
   supplier: { id: string; name: string };
   school: { id: string; name: string };
   program: { id: string; name: string; type: string } | null;
+  stockEntry: { id: string; invoiceNumber: string; invoiceSeries: string | null; invoiceDate: string; totalValue: number; programId: string; program: { name: string; type: string } } | null;
   createdBy: { id: string; name: string };
   confirmedBy: { id: string; name: string } | null;
   items: OrderItem[];
@@ -59,7 +62,7 @@ function StatusIcon({ s }: { s: string }) {
   return <Clock className="w-4 h-4 text-yellow-500" />;
 }
 
-// --- Modal: Nova Entrega (Fornecedor) ----------------------------------------
+// --- Modal: Nova Entrega (Fornecedor — baseado em NF autorizada) -------------
 function NewDeliveryModal({
   supplierId,
   schoolId,
@@ -71,37 +74,79 @@ function NewDeliveryModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [programs, setPrograms] = useState<Program[]>([]);
+  // NFs autorizadas (StockEntries do fornecedor)
+  interface NfEntry { id: string; invoiceNumber: string; invoiceSeries: string | null; invoiceDate: string; totalValue: number; programId: string; program: { name: string; type: string }; supplier: { name: string }; items: { id: string; product: { id: string; name: string; unit: string }; quantity: number; unitPrice: number }[] }
+  const [nfs, setNfs] = useState<NfEntry[]>([]);
+  const [selectedNfId, setSelectedNfId] = useState("");
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({
-    programId: "",
-    deliveryDate: new Date().toISOString().slice(0, 16),
-    notes: "",
-  });
-  const [items, setItems] = useState([
-    { productId: "", quantityOrdered: "", unitPrice: "" },
-  ]);
+  const [deliveryDate, setDeliveryDate] = useState(new Date().toISOString().slice(0, 16));
+  const [notes, setNotes] = useState("");
+  // Itens da NF (com qty ajustável)
+  const [nfItems, setNfItems] = useState<Array<{ productId: string; name: string; unit: string; quantityOrdered: string; unitPrice: string }>>([]);
+  // Itens fora da NF (extra com ressalva)
+  const [extraItems, setExtraItems] = useState<Array<{ productId: string; name: string; unit: string; quantityOrdered: string; unitPrice: string; extraNote: string }>>([]);
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
+  const [showExtraSection, setShowExtraSection] = useState(false);
 
   useEffect(() => {
-    fetch("/api/products").then((r) => { if (r.ok) r.json().then(setProducts); });
-    fetch("/api/programs").then((r) => { if (r.ok) r.json().then(setPrograms); });
+    // Apenas as NFs deste fornecedor
+    fetch("/api/stock/entries").then(r => r.ok ? r.json() : []).then(setNfs);
+    fetch("/api/products").then(r => r.ok ? r.json() : []).then(setAllProducts);
   }, []);
 
-  function addItem() {
-    setItems((prev) => [...prev, { productId: "", quantityOrdered: "", unitPrice: "" }]);
-  }
-  function removeItem(i: number) {
-    setItems((prev) => prev.filter((_, idx) => idx !== i));
-  }
-  function setItem(i: number, field: string, val: string) {
-    setItems((prev) => prev.map((item, idx) => idx === i ? { ...item, [field]: val } : item));
+  // Ao selecionar NF, pré-preenche itens
+  function handleNfSelect(id: string) {
+    setSelectedNfId(id);
+    const nf = nfs.find(n => n.id === id);
+    if (nf) {
+      setNfItems(nf.items.map(i => ({
+        productId: i.product.id,
+        name: i.product.name,
+        unit: i.product.unit,
+        quantityOrdered: String(i.quantity),
+        unitPrice: String(i.unitPrice),
+      })));
+    } else {
+      setNfItems([]);
+    }
+    setExtraItems([]);
+    setShowExtraSection(false);
   }
 
+  function updateNfItem(idx: number, field: string, val: string) {
+    setNfItems(prev => prev.map((it, i) => i === idx ? { ...it, [field]: val } : it));
+  }
+
+  function addExtraItem() {
+    setExtraItems(prev => [...prev, { productId: "", name: "", unit: "", quantityOrdered: "", unitPrice: "", extraNote: "" }]);
+  }
+  function removeExtraItem(idx: number) {
+    setExtraItems(prev => prev.filter((_, i) => i !== idx));
+  }
+  function updateExtraItem(idx: number, field: string, val: string) {
+    setExtraItems(prev => prev.map((it, i) => {
+      if (i !== idx) return it;
+      if (field === "productId") {
+        const p = allProducts.find(p => p.id === val);
+        return { ...it, productId: val, name: p?.name ?? "", unit: p?.unit ?? "" };
+      }
+      return { ...it, [field]: val };
+    }));
+  }
+
+  const selectedNf = nfs.find(n => n.id === selectedNfId);
+  const totalNf = nfItems.reduce((s, i) => s + (Number(i.quantityOrdered)||0) * (Number(i.unitPrice)||0), 0);
+  const totalExtra = extraItems.reduce((s, i) => s + (Number(i.quantityOrdered)||0) * (Number(i.unitPrice)||0), 0);
+
   async function handleSave() {
-    const validItems = items.filter((i) => i.productId && i.quantityOrdered && i.unitPrice);
-    if (validItems.length === 0) { toast.error("Adicione ao menos 1 produto"); return; }
-    if (!form.deliveryDate) { toast.error("Informe data/hora da entrega"); return; }
+    if (!selectedNfId) { toast.error("Selecione a Nota Fiscal de referência"); return; }
+    if (!deliveryDate) { toast.error("Informe a data/hora da entrega"); return; }
+    const validNfItems = nfItems.filter(i => Number(i.quantityOrdered) > 0);
+    const validExtra = extraItems.filter(i => i.productId && Number(i.quantityOrdered) > 0);
+    if (validNfItems.length === 0 && validExtra.length === 0) { toast.error("Informe pelo menos 1 item entregue"); return; }
+    const missingNote = validExtra.find(i => !i.extraNote.trim());
+    if (missingNote) { toast.error("Itens fora da NF exigem justificativa"); return; }
+
     setSaving(true);
     const res = await fetch("/api/deliveries", {
       method: "POST",
@@ -109,45 +154,145 @@ function NewDeliveryModal({
       body: JSON.stringify({
         supplierId,
         schoolId,
-        programId: form.programId || null,
-        deliveryDate: form.deliveryDate,
-        notes: form.notes || null,
-        items: validItems.map((i) => ({
-          productId: i.productId,
-          quantityOrdered: Number(i.quantityOrdered),
-          unitPrice: Number(i.unitPrice),
-        })),
+        programId: selectedNf?.programId || null,
+        stockEntryId: selectedNfId,
+        deliveryDate,
+        notes: notes || null,
+        items: [
+          ...validNfItems.map(i => ({ productId: i.productId, quantityOrdered: Number(i.quantityOrdered), unitPrice: Number(i.unitPrice), isExtra: false })),
+          ...validExtra.map(i => ({ productId: i.productId, quantityOrdered: Number(i.quantityOrdered), unitPrice: Number(i.unitPrice), isExtra: true, extraNote: i.extraNote })),
+        ],
       }),
     });
     setSaving(false);
     if (res.ok) {
-      toast.success("Entrega registrada com sucesso! Aguardando confirmacao do diretor.");
-      onSaved();
-      onClose();
+      toast.success("Entrega registrada! Aguardando confirmação do administrador.");
+      onSaved(); onClose();
     } else {
       const err = await res.json();
       toast.error(err.error ?? "Erro ao registrar entrega.");
     }
   }
 
-  const total = items.reduce(
-    (s, i) => s + (Number(i.quantityOrdered) || 0) * (Number(i.unitPrice) || 0),
-    0
-  );
-
   return (
-    <Modal open title="Registrar Nova Entrega" onClose={onClose} size="lg">
+    <Modal open title="Registrar Entrega" onClose={onClose} size="lg">
       <div className="space-y-4">
+        {/* Seleção da NF */}
+        <div>
+          <label className="text-xs font-semibold text-slate-600 mb-1 block">Nota Fiscal de Referência *</label>
+          <select value={selectedNfId} onChange={e => handleNfSelect(e.target.value)}
+            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="">— Selecione a NF autorizada —</option>
+            {nfs.map(n => {
+              const parcela = n.invoiceSeries ? ` · Parcela ${n.invoiceSeries}` : "";
+              return <option key={n.id} value={n.id}>NF {n.invoiceNumber}{parcela} — {n.program.name} — {new Date(n.invoiceDate).toLocaleDateString("pt-BR")} — {formatCurrency(n.totalValue)}</option>;
+            })}
+          </select>
+          {selectedNf && (
+            <div className="mt-1.5 bg-blue-50 border border-blue-200 rounded-lg px-3 py-1.5 text-xs text-blue-700">
+              NF {selectedNf.invoiceNumber} · {selectedNf.program.name}{selectedNf.invoiceSeries ? ` · Parcela ${selectedNf.invoiceSeries}` : ""} · Valor contratado: <strong>{formatCurrency(selectedNf.totalValue)}</strong>
+            </div>
+          )}
+        </div>
+
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-xs text-slate-500 mb-1 block">Programa (opcional)</label>
-            <select
-              value={form.programId}
-              onChange={(e) => setForm((f) => ({ ...f, programId: e.target.value }))}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">— Nenhum —</option>
-              {programs.map((p) => (
+            <label className="text-xs text-slate-500 mb-1 block">Data e Hora da Entrega *</label>
+            <input type="datetime-local" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Observações</label>
+            <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Opcional"
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+        </div>
+
+        {/* Itens da NF */}
+        {nfItems.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">Itens da NF — Quantidade Entregue</p>
+            <div className="space-y-2">
+              {nfItems.map((item, i) => (
+                <div key={i} className="grid grid-cols-[2fr_1fr_1fr] gap-2 items-center bg-slate-50 rounded-lg px-3 py-2">
+                  <span className="text-sm font-medium text-slate-700">{item.name} <span className="text-slate-400 text-xs">({item.unit})</span></span>
+                  <input type="number" step="0.001" min="0" placeholder="Qtd entregue"
+                    value={item.quantityOrdered}
+                    onChange={e => updateNfItem(i, "quantityOrdered", e.target.value)}
+                    className="border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                  <span className="text-xs text-slate-500 text-right">{formatCurrency(Number(item.unitPrice))} / {item.unit}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Itens fora da NF (extra) */}
+        {selectedNfId && (
+          <div>
+            <button type="button" onClick={() => { setShowExtraSection(v => !v); if (!showExtraSection && extraItems.length === 0) addExtraItem(); }}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border-2 text-sm font-medium transition-colors ${showExtraSection ? "border-amber-400 bg-amber-50 text-amber-700" : "border-dashed border-slate-300 text-slate-500 hover:border-amber-300"}`}>
+              <span>⚠ Produtos Fora da NF (com Ressalva)</span>
+              <span className="text-xs font-normal">abatidos do valor desta NF/programa</span>
+            </button>
+            {showExtraSection && (
+              <div className="mt-2 space-y-2 border border-amber-200 rounded-xl p-3 bg-amber-50/50">
+                <p className="text-xs text-amber-700 font-medium">Estes itens não constam na NF selecionada. O valor será abatido do orçamento do programa desta NF. Justificativa obrigatória.</p>
+                {extraItems.map((item, i) => (
+                  <div key={i} className="space-y-1.5 bg-white rounded-lg p-2 border border-amber-200">
+                    <div className="grid grid-cols-[2fr_1fr_1fr_auto] gap-2 items-center">
+                      <select value={item.productId} onChange={e => updateExtraItem(i, "productId", e.target.value)}
+                        className="border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none">
+                        <option value="">Produto...</option>
+                        {allProducts.map(p => <option key={p.id} value={p.id}>{p.name} ({p.unit})</option>)}
+                      </select>
+                      <input type="number" step="0.001" min="0" placeholder="Qtd" value={item.quantityOrdered}
+                        onChange={e => updateExtraItem(i, "quantityOrdered", e.target.value)}
+                        className="border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none" />
+                      <input type="number" step="0.01" min="0" placeholder="Vl. unit." value={item.unitPrice}
+                        onChange={e => updateExtraItem(i, "unitPrice", e.target.value)}
+                        className="border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none" />
+                      <button onClick={() => removeExtraItem(i)} className="text-slate-400 hover:text-red-500"><XCircle className="w-4 h-4" /></button>
+                    </div>
+                    <input placeholder="Justificativa obrigatória (ex: substituição por falta do item original)" value={item.extraNote}
+                      onChange={e => updateExtraItem(i, "extraNote", e.target.value)}
+                      className="w-full border border-amber-300 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-amber-400" />
+                  </div>
+                ))}
+                <button onClick={addExtraItem} className="text-xs text-amber-700 hover:text-amber-900 font-medium flex items-center gap-1">
+                  <Plus className="w-3 h-3" /> Adicionar produto extra
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Totais */}
+        {selectedNfId && (
+          <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+            <div className="space-y-0.5">
+              {totalNf > 0 && <p className="text-xs text-slate-500">NF: <strong className="text-blue-700">{formatCurrency(totalNf)}</strong></p>}
+              {totalExtra > 0 && <p className="text-xs text-amber-600">Extras (ressalva): <strong>{formatCurrency(totalExtra)}</strong></p>}
+              <p className="text-sm font-bold text-slate-800">Total entregue: {formatCurrency(totalNf + totalExtra)}</p>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
+              <button onClick={handleSave} disabled={saving}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg disabled:opacity-50">
+                {saving ? "Registrando..." : "Registrar Entrega"}
+              </button>
+            </div>
+          </div>
+        )}
+        {!selectedNfId && (
+          <div className="flex justify-end pt-2 border-t border-slate-100">
+            <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">Fechar</button>
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
@@ -324,6 +469,12 @@ function ConfirmModal({
           Ao confirmar, o estoque sera atualizado e o valor sera debitado do orcamento do programa.
         </div>
 
+        {order.stockEntry && (
+          <div className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700">
+            NF de referência: <strong>NF {order.stockEntry.invoiceNumber}{order.stockEntry.invoiceSeries ? ` · Parcela ${order.stockEntry.invoiceSeries}` : ""}</strong> · {order.stockEntry.program.name} · Valor contratado: <strong>{formatCurrency(order.stockEntry.totalValue)}</strong>
+          </div>
+        )}
+
         <div className="text-xs text-slate-500 space-y-1">
           <p>Fornecedor: <strong>{order.supplier.name}</strong></p>
           <p>Data/hora: <strong>{new Date(order.deliveryDate).toLocaleString("pt-BR")}</strong></p>
@@ -342,10 +493,12 @@ function ConfirmModal({
             const confirmed = Number(quantities[item.id] ?? 0);
             const isPending = confirmed < item.quantityOrdered;
             return (
-              <div key={item.id} className={`grid grid-cols-[2fr_1fr_1fr_1fr] gap-2 items-center px-2 py-2 rounded-lg ${isPending ? "bg-orange-50" : "bg-green-50"}`}>
+              <div key={item.id} className={`grid grid-cols-[2fr_1fr_1fr_1fr] gap-2 items-center px-2 py-2 rounded-lg ${item.isExtra ? "bg-amber-50 border border-amber-200" : isPending ? "bg-orange-50" : "bg-green-50"}`}>
                 <span className="text-sm font-medium text-slate-800 truncate">
                   {item.product.name}
                   <span className="ml-1 text-xs text-slate-400">({item.product.unit})</span>
+                  {item.isExtra && <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-amber-200 text-amber-800">Fora NF</span>}
+                  {item.extraNote && <span className="block text-xs text-amber-600 italic">{item.extraNote}</span>}
                 </span>
                 <span className="text-sm text-slate-600">{item.quantityOrdered} {item.product.unit}</span>
                 <input
@@ -646,10 +799,12 @@ function OrderCard({ order, canConfirm, onRefresh }: { order: DeliveryOrder; can
               <div className="flex items-center gap-2">
                 <span className="font-semibold text-slate-800 text-sm">{order.supplier.name}</span>
                 <Badge color={STATUS_COLOR[order.status]}>{STATUS_LABEL[order.status]}</Badge>
+                {order.items.some(i => i.isExtra) && <Badge color="orange">Com Ressalva</Badge>}
               </div>
               <p className="text-xs text-slate-500">
                 {new Date(order.deliveryDate).toLocaleString("pt-BR")}
                 {order.program && ` · ${order.program.name}`}
+                {order.stockEntry && <span className="text-blue-600"> · NF {order.stockEntry.invoiceNumber}{order.stockEntry.invoiceSeries ? ` · Parcela ${order.stockEntry.invoiceSeries}` : ""}</span>}
                 {" · "}{order.items.length} produto(s)
                 {" · "}<span className="font-medium text-slate-700">{formatCurrency(totalOrdered)}</span>
               </p>
@@ -708,8 +863,12 @@ function OrderCard({ order, canConfirm, onRefresh }: { order: DeliveryOrder; can
                       ? item.quantityOrdered - item.quantityDelivered
                       : null;
                   return (
-                    <tr key={item.id} className={`${pending !== null && pending > 0 ? "bg-orange-50" : ""}`}>
-                      <Td>{item.product.name}</Td>
+                    <tr key={item.id} className={`${pending !== null && pending > 0 ? "bg-orange-50" : item.isExtra ? "bg-amber-50/60" : ""}`}>
+                      <Td>
+                        {item.product.name}
+                        {item.isExtra && <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700" title={item.extraNote ?? ""}>Fora NF</span>}
+                        {item.extraNote && <span className="block text-xs text-amber-600 italic mt-0.5">Ressalva: {item.extraNote}</span>}
+                      </Td>
                       <Td className="font-mono text-xs text-slate-400">{item.product.ncmCode}</Td>
                       <Td>{item.quantityOrdered} {item.product.unit}</Td>
                       <Td className={item.quantityDelivered !== null ? "text-green-700 font-medium" : "text-slate-400"}>
