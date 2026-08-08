@@ -131,8 +131,28 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  // Saídas são agora rastreadas diretamente no financeiro via exitSpent (sem BudgetMovement)
-  // EXIT-EXTRA e EXIT-DEFICIT foram substituídos pelo modelo de consumo baseado em saídas
+  // Saídas extra: cria BudgetMovement DEBIT (visível no financeiro) com referência EXIT-EXTRA-{id}
+  // A referência "EXIT-EXTRA-*" é excluída do debitAmount no financeiro para evitar dupla contagem com exitSpent
+  if (exitData.isExtra && totalValue > 0) {
+    // Cria um BudgetMovement por item para preservar produto e quantidade no memorando
+    for (const item of exit.items) {
+      if (item.totalPrice <= 0) continue;
+      await db.budgetMovement.create({
+        data: {
+          programId: exitData.programId,
+          type: "DEBIT",
+          category: "EXTRA",
+          amount: item.totalPrice,
+          description: `Saída Extra — ${item.product.name}`,
+          reference: `EXIT-EXTRA-${exit.id}`,
+          date: new Date(exitData.exitDate),
+          productId: item.productId,
+          quantity: item.quantity,
+          unit: item.product.unit,
+        },
+      });
+    }
+  }
 
   return NextResponse.json(exit, { status: 201 });
 }

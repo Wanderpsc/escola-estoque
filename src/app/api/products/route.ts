@@ -12,6 +12,7 @@ const productSchema = z.object({
   minStock: z.number().min(0).default(0),
   barcode: z.string().optional().nullable(),
   programId: z.string(),
+  invoiceNumber: z.string().optional(), // permite duplicata quando informado
 });
 
 export async function GET(req: NextRequest) {
@@ -70,8 +71,25 @@ export async function POST(req: NextRequest) {
   const parsed = productSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
+  // Bloquear produto duplicado (mesmo nome, mesma escola+programa), salvo quando NF é informada
+  const { invoiceNumber, ...productData } = parsed.data;
+  const duplicate = await db.product.findFirst({
+    where: {
+      name: { equals: productData.name, mode: "insensitive" },
+      schoolId,
+      programId: productData.programId,
+      active: true,
+    },
+  });
+  if (duplicate && !invoiceNumber) {
+    return NextResponse.json(
+      { error: `Produto "${productData.name}" já existe neste programa. Informe o número da NF para permitir o cadastro.` },
+      { status: 409 }
+    );
+  }
+
   const product = await db.product.create({
-    data: { ...parsed.data, schoolId },
+    data: { ...productData, schoolId },
     include: { program: { select: { name: true, type: true } } },
   });
   return NextResponse.json(product, { status: 201 });

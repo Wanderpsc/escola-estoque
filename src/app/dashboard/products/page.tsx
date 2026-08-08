@@ -147,9 +147,10 @@ export default function ProductsPage() {
   const [selected, setSelected] = useState<Product | null>(null);
   const [search, setSearch] = useState("");
   const [filterProgram, setFilterProgram] = useState("");
-  const [form, setForm] = useState({ name: "", ncmCode: "", unit: "KG", minStock: 0, programId: "", barcode: "" });
+  const [form, setForm] = useState({ name: "", ncmCode: "", unit: "KG", minStock: 0, programId: "", barcode: "", invoiceNumber: "" });
   const [saving, setSaving] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
+  const [duplicateBlocked, setDuplicateBlocked] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -161,13 +162,13 @@ export default function ProductsPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  function openAdd() { setForm({ name: "", ncmCode: "", unit: "KG", minStock: 0, programId: "", barcode: "" }); setSelected(null); setModal("add"); }
+  function openAdd() { setForm({ name: "", ncmCode: "", unit: "KG", minStock: 0, programId: "", barcode: "", invoiceNumber: "" }); setDuplicateBlocked(false); setSelected(null); setModal("add"); }
   function openEdit(p: Product) {
-    setForm({ name: p.name, ncmCode: p.ncmCode, unit: p.unit, minStock: p.minStock, programId: "", barcode: (p as any).barcode ?? "" });
-    setSelected(p); setModal("edit");
+    setForm({ name: p.name, ncmCode: p.ncmCode, unit: p.unit, minStock: p.minStock, programId: "", barcode: (p as any).barcode ?? "", invoiceNumber: "" });
+    setDuplicateBlocked(false); setSelected(p); setModal("edit");
   }
   function openDelete(p: Product) { setSelected(p); setModal("delete"); }
-  function closeModal() { setModal(null); setSelected(null); }
+  function closeModal() { setModal(null); setSelected(null); setDuplicateBlocked(false); }
 
   useEffect(() => { load(); }, [load]);
 
@@ -178,9 +179,10 @@ export default function ProductsPage() {
       const method = selected ? "PATCH" : "POST";
       const body = selected
         ? { name: form.name, ncmCode: form.ncmCode, unit: form.unit, minStock: Number(form.minStock), barcode: form.barcode || null }
-        : { ...form, minStock: Number(form.minStock), barcode: form.barcode || null };
+        : { ...form, minStock: Number(form.minStock), barcode: form.barcode || null, invoiceNumber: form.invoiceNumber || undefined };
       const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await res.json();
+      if (res.status === 409) { toast.error(data.error); setDuplicateBlocked(true); return; }
       if (!res.ok) { toast.error(data.error ?? "Erro ao salvar produto"); return; }
       toast.success(selected ? "Produto atualizado!" : "Produto cadastrado!");
       closeModal(); load();
@@ -329,6 +331,32 @@ export default function ProductsPage() {
             </div>
             <p className="text-xs text-slate-400 mt-1">Opcional. Permite buscar o produto por leitura óptica nas entradas de estoque.</p>
           </div>
+
+          {/* Campo NF: sempre visível no cadastro (não edição); destaca quando há duplicata bloqueada */}
+          {!selected && (
+            <div className={`rounded-xl border-2 p-3 transition-colors ${duplicateBlocked ? "border-red-400 bg-red-50" : "border-slate-200"}`}>
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                Nº da Nota Fiscal <span className="text-slate-400 font-normal">(obrigatório se o produto já existir neste programa)</span>
+              </label>
+              <input
+                type="text"
+                value={form.invoiceNumber}
+                onChange={(e) => { setForm({ ...form, invoiceNumber: e.target.value }); if (e.target.value) setDuplicateBlocked(false); }}
+                placeholder="Ex: 000123"
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              {duplicateBlocked && (
+                <p className="text-xs text-red-600 mt-1 font-medium">
+                  Produto duplicado detectado. Informe o número da NF para liberar o cadastro.
+                </p>
+              )}
+              {!duplicateBlocked && (
+                <p className="text-xs text-slate-400 mt-1">
+                  Preencha somente se o mesmo produto já existir e precisar ser recadastrado com uma NF diferente.
+                </p>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
           <Button variant="secondary" onClick={closeModal}>Cancelar</Button>

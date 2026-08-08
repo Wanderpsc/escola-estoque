@@ -48,6 +48,13 @@ export default function FinancialPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Reparo automático: garante que saídas extra históricas tenham BudgetMovements no memorando
+  useEffect(() => {
+    fetch("/api/financial/repair-extra", { method: "POST" })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.created > 0) load(); });
+  }, []); // executa uma vez ao montar a página
+
   async function saveBudget() {
     setSaving(true);
     try {

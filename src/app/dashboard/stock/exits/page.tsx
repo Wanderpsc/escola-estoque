@@ -33,7 +33,7 @@ export default function StockExitsPage() {
   const [editItems, setEditItems] = useState<Array<{ id: string; quantity: string; unitPrice: string }>>([]);
   const [pendingAction, setPendingAction] = useState<{ label: string; fn: () => void } | null>(null);
   const [programs, setPrograms] = useState<Array<{ id: string; name: string; type: string }>>([]); 
-  const [entries, setEntries] = useState<Array<{ id: string; invoiceNumber: string; invoiceDate: string; totalValue: number; programId: string; supplier: { name: string } }>>([]);
+  const [entries, setEntries] = useState<Array<{ id: string; invoiceNumber: string; invoiceSeries?: string; invoiceDate: string; totalValue: number; programId: string; supplier: { name: string }; program: { name: string; type: string } }>>([]); 
   const [balance, setBalance] = useState<Array<{ id: string; name: string; unit: string; balance: number; avgPrice: number; programId?: string; program: { type: string } }>>([]); 
   const [form, setForm] = useState(EMPTY_FORM);
 
@@ -78,7 +78,12 @@ export default function StockExitsPage() {
     const isDeficit = !form.isExtra && selectedProduct && qty > selectedProduct.balance;
 
     let baseObs = form.isExtra && form.nfEntryId
-      ? `[NF Ref.: ${entries.find(e => e.id === form.nfEntryId)?.invoiceNumber ?? form.nfEntryId}] ${form.observations}`.trim()
+      ? (() => {
+          const nf = entries.find(e => e.id === form.nfEntryId);
+          const parcela = nf?.invoiceSeries ? ` · Parcela ${nf.invoiceSeries}` : "";
+          const ref = nf ? `NF ${nf.invoiceNumber} — ${nf.program.name}${parcela}` : form.nfEntryId;
+          return `[NF Ref.: ${ref}] ${form.observations}`.trim();
+        })()
       : form.observations;
     if (isDeficit && selectedProduct) {
       const deficit = qty - selectedProduct.balance;
@@ -331,11 +336,14 @@ export default function StockExitsPage() {
                 <option value="">— Nenhuma (apenas debita o orçamento) —</option>
                 {entries
                   .filter(e => !form.programId || e.programId === form.programId)
-                  .map(e => (
-                    <option key={e.id} value={e.id}>
-                      NF {e.invoiceNumber} — {e.supplier.name} — {new Date(e.invoiceDate).toLocaleDateString("pt-BR")}
-                    </option>
-                  ))
+                  .map(e => {
+                    const parcela = e.invoiceSeries ? ` · Parcela ${e.invoiceSeries}` : "";
+                    return (
+                      <option key={e.id} value={e.id}>
+                        NF — {e.invoiceNumber} — {e.supplier.name} — {e.program.name}{parcela} — {new Date(e.invoiceDate).toLocaleDateString("pt-BR")}
+                      </option>
+                    );
+                  })
                 }
               </select>
               {form.nfEntryId && (
