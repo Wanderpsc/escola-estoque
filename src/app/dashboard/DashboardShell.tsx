@@ -72,6 +72,7 @@ const schoolNavigation = [
 
 // Navegação do Fornecedor (acesso limitado)
 const supplierNavigation = [
+  { name: "Painel", href: "/dashboard", icon: LayoutDashboard },
   { name: "Minhas Entregas", href: "/dashboard/deliveries", icon: ClipboardList },
 ];
 

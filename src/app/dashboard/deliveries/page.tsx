@@ -191,8 +191,6 @@ function NewDeliveryModal({
     }
   }
 
-  const selectedProgram = programs.find(p => p.id === programId);
-
   return (
     <Modal open title="Registrar Entrega de Mercadorias" onClose={onClose} size="xl">
       <div className="space-y-5">
@@ -202,42 +200,62 @@ function NewDeliveryModal({
           <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-3">1. Identificação da Entrega</p>
           <div className="grid grid-cols-2 gap-3">
 
-            {/* NF existente no sistema (opcional) */}
+            {/* NF selecionável — se existir no sistema auto-preenche; se não, mostra campo manual */}
             <div className="col-span-2">
-              <label className="text-xs text-slate-500 mb-1 block">Nota Fiscal autorizada (se existir no sistema)</label>
-              <select value={nfEntryId} onChange={e => handleNfEntrySelect(e.target.value)}
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="">— Selecione se esta NF já foi cadastrada pelo administrador —</option>
-                {nfs.map(n => {
-                  const parc = n.invoiceSeries ? ` · Parcela ${n.invoiceSeries}` : "";
-                  return <option key={n.id} value={n.id}>NF {n.invoiceNumber}{parc} — {n.program.name} — {new Date(n.invoiceDate).toLocaleDateString("pt-BR")} — {formatCurrency(n.totalValue)}</option>;
-                })}
-              </select>
-              {nfs.length === 0 && <p className="text-xs text-slate-400 mt-0.5">Nenhuma NF cadastrada pelo administrador para este fornecedor ainda.</p>}
-            </div>
-
-            {/* Número da NF (manual) */}
-            <div>
               <label className="text-xs font-medium text-slate-600 mb-1 block">Número da Nota Fiscal *</label>
-              <input value={nfRef} onChange={e => setNfRef(e.target.value)} placeholder="Ex: 000123"
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              {nfs.length > 0 ? (
+                <select value={nfEntryId || (nfRef ? "__manual__" : "")}
+                  onChange={e => {
+                    const val = e.target.value;
+                    if (val === "__manual__") { setNfEntryId(""); setNfRef(""); setInvoiceSeries(""); setProgramId(""); }
+                    else { handleNfEntrySelect(val); }
+                  }}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <option value="">— Selecione a Nota Fiscal —</option>
+                  {nfs.map(n => {
+                    const parc = n.invoiceSeries ? ` · Parcela ${n.invoiceSeries}` : "";
+                    return <option key={n.id} value={n.id}>NF {n.invoiceNumber}{parc} — {n.program.name} — {formatCurrency(n.totalValue)}</option>;
+                  })}
+                  <option value="__manual__">✏ Digitar número manualmente (NF não está no sistema)</option>
+                </select>
+              ) : (
+                <input value={nfRef} onChange={e => setNfRef(e.target.value)} placeholder="Ex: 000123"
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              )}
+              {/* Campo manual visível quando "digitar manualmente" está selecionado */}
+              {nfs.length > 0 && !nfEntryId && (
+                <input value={nfRef} onChange={e => setNfRef(e.target.value)} placeholder="Digite o número da NF"
+                  className="mt-2 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              )}
             </div>
 
-            {/* Parcela / Série */}
+            {/* Parcela / Série — auto-preenche da NF ou manual */}
             <div>
               <label className="text-xs font-medium text-slate-600 mb-1 block">Parcela / Série</label>
-              <input value={invoiceSeries} onChange={e => setInvoiceSeries(e.target.value)} placeholder="Ex: 6ª Parcela, Série 001"
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              {nfEntryId ? (
+                <div className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700">
+                  {invoiceSeries || <span className="text-slate-400">—</span>}
+                </div>
+              ) : (
+                <input value={invoiceSeries} onChange={e => setInvoiceSeries(e.target.value)} placeholder="Ex: 6ª Parcela, Série 001"
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              )}
             </div>
 
-            {/* Programa */}
+            {/* Programa — auto-preenche da NF ou manual */}
             <div>
               <label className="text-xs font-medium text-slate-600 mb-1 block">Programa *</label>
-              <select value={programId} onChange={e => setProgramId(e.target.value)}
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="">— Selecione o programa —</option>
-                {programs.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
+              {nfEntryId ? (
+                <div className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 font-medium">
+                  {programs.find(p => p.id === programId)?.name || <span className="text-slate-400">—</span>}
+                </div>
+              ) : (
+                <select value={programId} onChange={e => setProgramId(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <option value="">— Selecione o programa —</option>
+                  {programs.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              )}
             </div>
 
             {/* Data e Hora */}
@@ -249,7 +267,7 @@ function NewDeliveryModal({
             </div>
 
             {/* Observações */}
-            <div className="col-span-2">
+            <div>
               <label className="text-xs font-medium text-slate-600 mb-1 block">Observações</label>
               <input value={notes} onChange={e => setNotes(e.target.value)}
                 placeholder="Ex: entrega parcial, produto danificado, etc."
@@ -257,12 +275,13 @@ function NewDeliveryModal({
             </div>
           </div>
 
-          {/* Resumo da identificação */}
-          {(selectedProgram || nfRef) && (
+          {/* Resumo visual */}
+          {(nfRef || invoiceSeries || programId) && (
             <div className="mt-3 flex flex-wrap gap-2">
               {nfRef && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-mono font-semibold">NF {nfRef}</span>}
               {invoiceSeries && <span className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded-full">{invoiceSeries}</span>}
-              {selectedProgram && <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-semibold">{selectedProgram.name}</span>}
+              {programId && <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-semibold">{programs.find(p => p.id === programId)?.name}</span>}
+              {nfEntryId && <span className="text-xs bg-slate-100 text-slate-500 px-2 py-1 rounded-full">NF vinculada ao sistema ✓</span>}
             </div>
           )}
         </div>
