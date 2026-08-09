@@ -25,7 +25,39 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
 
   const body = await req.json();
-  const { invoiceNumber, invoiceDate, supplierId, observations, items } = body;
+  const { invoiceNumber, invoiceDate, supplierId, observations, items, action } = body;
+
+  // ── Ação: Finalizar NF ────────────────────────────────────────────────────
+  if (action === "FINALIZE") {
+    if (entry.status === "FINALIZED") {
+      return NextResponse.json({ error: "NF já finalizada" }, { status: 400 });
+    }
+    const finalized = await db.stockEntry.update({
+      where: { id },
+      data: { status: "FINALIZED", finalizedAt: new Date() },
+      include: {
+        supplier: { select: { name: true } },
+        program: { select: { name: true, type: true } },
+        user: { select: { name: true } },
+        items: { include: { product: { select: { name: true, unit: true } } } },
+      },
+    });
+    return NextResponse.json(finalized);
+  }
+
+  if (action === "REOPEN") {
+    const reopened = await db.stockEntry.update({
+      where: { id },
+      data: { status: "OPEN", finalizedAt: null },
+      include: {
+        supplier: { select: { name: true } },
+        program: { select: { name: true, type: true } },
+        user: { select: { name: true } },
+        items: { include: { product: { select: { name: true, unit: true } } } },
+      },
+    });
+    return NextResponse.json(reopened);
+  }
 
   // Atualiza itens se fornecidos
   if (Array.isArray(items)) {

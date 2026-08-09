@@ -173,6 +173,8 @@ model StockEntry {
   user          User     @relation(fields: [userId], references: [id])
   observations  String?
   isPurchase    Boolean  @default(false)
+  status        String   @default("OPEN") // OPEN | FINALIZED
+  finalizedAt   DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

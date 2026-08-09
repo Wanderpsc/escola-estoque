@@ -3,11 +3,11 @@
 import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useSession } from "next-auth/react";
-import { BarChart3, FileDown, Package, DollarSign, ArrowDownLeft, ArrowUpRight, Settings, ImageIcon, Save, ShoppingBag, Printer, ShoppingCart } from "lucide-react";
+import { BarChart3, FileDown, Package, DollarSign, ArrowDownLeft, ArrowUpRight, Settings, ImageIcon, Save, ShoppingBag, Printer, ShoppingCart, CalendarCheck } from "lucide-react";
 import { PageHeader, Button, Select, Badge } from "@/components/ui";
 import { formatCurrency, formatDate, PROGRAM_TYPES, EXIT_REASONS } from "@/lib/utils";
 
-type ReportType = "balance" | "entries" | "exits" | "financial" | "purchases" | "needs_purchase";
+type ReportType = "balance" | "entries" | "exits" | "financial" | "purchases" | "needs_purchase" | "annual_execution";
 
 export default function ReportsPage() {
   const { data: session } = useSession();
@@ -22,6 +22,9 @@ export default function ReportsPage() {
   const [dateTo, setDateTo] = useState("");
   const [programs, setPrograms] = useState<Array<{ id: string; name: string; type: string }>>([]);
   const [reportProgramId, setReportProgramId] = useState("");
+  const [reportYear, setReportYear] = useState(new Date().getFullYear());
+  // annual_execution retorna objeto {year, programs, totals}, não array
+  const [annualData, setAnnualData] = useState<any | null>(null);
 
   useEffect(() => {
     fetch("/api/programs").then((r) => r.ok ? r.json() : []).then(setPrograms);
@@ -82,18 +85,20 @@ export default function ReportsPage() {
       const q  = p.toString();
       const qs = q ? `&${q}` : "";
       const endpoints: Record<ReportType, string> = {
-        balance:        q ? `/api/stock/balance?${q}` : "/api/stock/balance",
-        entries:        q ? `/api/stock/entries?${q}` : "/api/stock/entries",
-        exits:          q ? `/api/stock/exits?${q}`   : "/api/stock/exits",
-        financial:      q ? `/api/financial/movements?${q}` : "/api/financial/movements",
-        purchases:      `/api/stock/entries?purchases=true${qs}`,
-        needs_purchase: q ? `/api/stock/balance?${q}` : "/api/stock/balance",
+        balance:          q ? `/api/stock/balance?${q}` : "/api/stock/balance",
+        entries:          q ? `/api/stock/entries?${q}` : "/api/stock/entries",
+        exits:            q ? `/api/stock/exits?${q}`   : "/api/stock/exits",
+        financial:        q ? `/api/financial/movements?${q}` : "/api/financial/movements",
+        purchases:        `/api/stock/entries?purchases=true${qs}`,
+        needs_purchase:   q ? `/api/stock/balance?${q}` : "/api/stock/balance",
+        annual_execution: `/api/reports/annual-execution?year=${reportYear}${reportProgramId ? `&programId=${reportProgramId}` : ""}`,
       };
       const res = await fetch(endpoints[type]);
       if (!res.ok) { toast.error("Erro ao gerar relatório"); return; }
       const json = await res.json();
-      // Lista de compras: filtra apenas produtos abaixo do mínimo, ordena por urgência
-      if (type === "needs_purchase") {
+      if (type === "annual_execution") {
+        setAnnualData(json); setData([]);
+      } else if (type === "needs_purchase") {
         const deficit = json
           .filter((r: any) => r.balance < r.minStock || r.balance <= 0)
           .map((r: any) => ({ ...r, needed: Math.max(r.minStock - r.balance, 0) }))
@@ -125,6 +130,7 @@ export default function ReportsPage() {
         financial: "Relatório Financeiro",
         purchases: "Relatório de Compras Informais",
         needs_purchase: "Lista de Compras — Produtos Abaixo do Estoque Mínimo",
+        annual_execution: `Execução Anual de Recursos — ${reportYear}`,
       };
 
       // Cabeçalho personalizado
@@ -344,6 +350,70 @@ export default function ReportsPage() {
         }
       }
 
+      // ── PDF: Execução Anual ─────────────────────────────────────────────
+      if (type === "annual_execution" && annualData) {
+        // Consolidado por programa
+        autoTable(doc, {
+          startY: 38,
+          head: [["Programa", "NFs Finalizadas", "Contratado (R$)", "Executado (R$)", "Saldo (R$)", "% Execução"]],
+          body: annualData.programs.map((p: any) => [
+            p.programName,
+            p.nfCount,
+            formatCurrency(p.contracted),
+            formatCurrency(p.executed),
+            formatCurrency(p.balance),
+            `${p.executionPct.toFixed(1)}%`,
+          ]),
+          styles: { fontSize: 8 },
+          headStyles: { fillColor: [5, 150, 105] },
+          didParseCell: (data: any) => {
+            if (data.column.index === 5 && data.section === "body") {
+              const pct = parseFloat(data.cell.raw as string);
+              if (pct >= 100) data.cell.styles.textColor = [22, 163, 74];
+              else if (pct >= 70) data.cell.styles.textColor = [161, 98, 7];
+              else data.cell.styles.textColor = [220, 38, 38];
+            }
+          },
+          foot: [[
+            "TOTAL GERAL",
+            annualData.totals.nfCount,
+            formatCurrency(annualData.totals.contracted),
+            formatCurrency(annualData.totals.executed),
+            formatCurrency(annualData.totals.balance),
+            `${annualData.totals.executionPct.toFixed(1)}%`,
+          ]],
+          footStyles: { fillColor: [5, 150, 105], textColor: 255, fontStyle: "bold" },
+        });
+
+        // Detalhe por NF de cada programa
+        let yDetail = (doc as any).lastAutoTable.finalY + 10;
+        for (const prog of annualData.programs) {
+          if (yDetail > 185) { doc.addPage(); yDetail = 20; }
+          doc.setFontSize(9);
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(5, 150, 105);
+          doc.text(`${prog.programName} — Detalhamento das NFs`, 14, yDetail);
+          doc.setTextColor(0, 0, 0);
+          yDetail += 4;
+          autoTable(doc, {
+            startY: yDetail,
+            head: [["NF", "Fornecedor", "Data NF", "Finalizada em", "Contratado", "Executado", "Saldo"]],
+            body: prog.entries.map((e: any) => [
+              e.invoiceNumber,
+              e.supplier,
+              new Date(e.invoiceDate).toLocaleDateString("pt-BR"),
+              e.finalizedAt ? new Date(e.finalizedAt).toLocaleDateString("pt-BR") : "—",
+              formatCurrency(e.contracted),
+              formatCurrency(e.executed),
+              formatCurrency(e.contracted - e.executed),
+            ]),
+            styles: { fontSize: 7 },
+            headStyles: { fillColor: [209, 250, 229], textColor: [5, 150, 105] },
+          });
+          yDetail = (doc as any).lastAutoTable.finalY + 8;
+        }
+      }
+
       // Rodapé
       const pageCount = doc.getNumberOfPages();
       for (let i = 1; i <= pageCount; i++) {
@@ -376,6 +446,7 @@ export default function ReportsPage() {
     { value: "financial", label: "Movimentações Financeiras", icon: DollarSign, desc: "Créditos e débitos por programa" },
     { value: "purchases", label: "Compras Informais", icon: ShoppingBag, desc: "Compras realizadas sem nota fiscal formal" },
     { value: "needs_purchase", label: "Lista de Compras", icon: ShoppingCart, desc: "Produtos abaixo do estoque mínimo que precisam ser comprados" },
+    { value: "annual_execution", label: "Execução Anual", icon: CalendarCheck, desc: "Recursos acumulados/executados por programa no ano (NFs finalizadas)" },
   ];
 
   return (
@@ -478,18 +549,27 @@ export default function ReportsPage() {
           ))}
         </div>
         {programs.length > 0 && (
-          <select value={reportProgramId} onChange={(e) => { setReportProgramId(e.target.value); setData(null); }} className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 ml-auto">
+          <select value={reportProgramId} onChange={(e) => { setReportProgramId(e.target.value); setData(null); setAnnualData(null); }} className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 ml-auto">
             <option value="">Todos os programas</option>
             {programs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
+        )}
+        {type === "annual_execution" && (
+          <div className="flex items-center gap-2 ml-auto">
+            <span className="text-xs text-slate-500">Ano:</span>
+            <select value={reportYear} onChange={e => { setReportYear(Number(e.target.value)); setAnnualData(null); }}
+              className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500">
+              {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+          </div>
         )}
         {(dateFrom || dateTo) && <span className="text-xs text-blue-600">{dateFrom || "⋯"} → {dateTo || "⋯"}</span>}
       </div>
 
       <div className="flex gap-3 mb-6">
         <Button onClick={generateReport} loading={loading}><BarChart3 className="w-4 h-4" />Gerar Relatório</Button>
-        {data && <Button variant="secondary" onClick={() => exportPDF(true)} loading={generating}><Printer className="w-4 h-4" />Imprimir</Button>}
-        {data && <Button variant="secondary" onClick={() => exportPDF(false)} loading={generating}><FileDown className="w-4 h-4" />Exportar PDF</Button>}
+        {(data && data.length > 0 || annualData) && <Button variant="secondary" onClick={() => exportPDF(true)} loading={generating}><Printer className="w-4 h-4" />Imprimir</Button>}
+        {(data && data.length > 0 || annualData) && <Button variant="secondary" onClick={() => exportPDF(false)} loading={generating}><FileDown className="w-4 h-4" />Exportar PDF</Button>}
       </div>
 
       {/* Prévia do relatório */}
@@ -721,6 +801,90 @@ export default function ReportsPage() {
               );
             })()}
             {data.length > 20 && type !== "needs_purchase" && <p className="px-5 py-3 text-xs text-slate-400 border-t">Mostrando 20 de {data.length} registros. O PDF conterá todos.</p>}
+        </div>
+      )}
+
+      {/* ── Prévia: Execução Anual ─────────────────── */}
+      {type === "annual_execution" && annualData && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+            <div>
+              <h3 className="font-semibold text-slate-800">Execução Anual de Recursos — {annualData.year}</h3>
+              <p className="text-xs text-slate-400">{annualData.totals.nfCount} NF(s) finalizada(s)</p>
+            </div>
+            <Badge color="green">Pronto para exportar</Badge>
+          </div>
+
+          {/* Consolidado geral */}
+          <div className="grid grid-cols-3 gap-4 px-5 py-4 bg-emerald-50 border-b border-emerald-100">
+            <div>
+              <p className="text-xs text-slate-500 mb-0.5">Total Contratado (NFs)</p>
+              <p className="text-xl font-bold text-slate-800">{formatCurrency(annualData.totals.contracted)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-500 mb-0.5">Total Executado</p>
+              <p className="text-xl font-bold text-emerald-700">{formatCurrency(annualData.totals.executed)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-500 mb-0.5">% Execução / Saldo</p>
+              <p className="text-xl font-bold text-slate-800">{annualData.totals.executionPct.toFixed(1)}%
+                <span className="text-sm font-normal text-slate-400 ml-2">({formatCurrency(annualData.totals.balance)} restante)</span>
+              </p>
+            </div>
+          </div>
+
+          {/* Por programa */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-50 border-b">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Programa</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500">NFs</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500">Contratado</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-emerald-700">Executado</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500">Saldo</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500">% Execução</th>
+                </tr>
+              </thead>
+              <tbody>
+                {annualData.programs.map((p: any) => (
+                  <tr key={p.programId} className="border-b hover:bg-slate-50">
+                    <td className="px-4 py-3 font-medium text-slate-800">{p.programName}</td>
+                    <td className="px-4 py-3 text-right text-slate-500">{p.nfCount}</td>
+                    <td className="px-4 py-3 text-right text-slate-700">{formatCurrency(p.contracted)}</td>
+                    <td className="px-4 py-3 text-right font-semibold text-emerald-700">{formatCurrency(p.executed)}</td>
+                    <td className="px-4 py-3 text-right text-slate-500">{formatCurrency(p.balance)}</td>
+                    <td className="px-4 py-3 text-right">
+                      <span className={`font-semibold ${p.executionPct >= 100 ? "text-emerald-600" : p.executionPct >= 70 ? "text-amber-600" : "text-red-600"}`}>
+                        {p.executionPct.toFixed(1)}%
+                      </span>
+                      <div className="mt-1 w-full bg-slate-100 rounded-full h-1.5">
+                        <div className={`h-1.5 rounded-full ${p.executionPct >= 100 ? "bg-emerald-500" : p.executionPct >= 70 ? "bg-amber-400" : "bg-red-400"}`}
+                          style={{ width: `${Math.min(p.executionPct, 100)}%` }} />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="bg-emerald-50 border-t-2 border-emerald-200">
+                  <td className="px-4 py-3 font-bold text-slate-800">TOTAL GERAL</td>
+                  <td className="px-4 py-3 text-right font-bold">{annualData.totals.nfCount}</td>
+                  <td className="px-4 py-3 text-right font-bold">{formatCurrency(annualData.totals.contracted)}</td>
+                  <td className="px-4 py-3 text-right font-bold text-emerald-700">{formatCurrency(annualData.totals.executed)}</td>
+                  <td className="px-4 py-3 text-right font-bold">{formatCurrency(annualData.totals.balance)}</td>
+                  <td className="px-4 py-3 text-right font-bold text-emerald-700">{annualData.totals.executionPct.toFixed(1)}%</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          {annualData.totals.nfCount === 0 && (
+            <div className="px-5 py-8 text-center text-slate-400">
+              <p className="text-sm">Nenhuma NF finalizada em {annualData.year}.</p>
+              <p className="text-xs mt-1">Finalize NFs na página de Entradas para fixar os recursos nos relatórios.</p>
+            </div>
+          )}
         </div>
       )}
     </div>

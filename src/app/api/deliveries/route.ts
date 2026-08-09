@@ -79,9 +79,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Fornecedor inválido para este usuário" }, { status: 403 });
     }
     if (stockEntryId) {
-      const entry = await db.stockEntry.findUnique({ where: { id: stockEntryId }, select: { supplierId: true } });
+      const entry = await db.stockEntry.findUnique({ where: { id: stockEntryId }, select: { supplierId: true, status: true } });
       if (!entry || entry.supplierId !== supplierId) {
         return NextResponse.json({ error: "NF não pertence a este fornecedor" }, { status: 403 });
+      }
+      if (entry.status === "FINALIZED") {
+        return NextResponse.json({ error: "Esta NF já foi finalizada pelo administrador. Não é possível registrar novas entregas." }, { status: 409 });
       }
     }
   }

@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
   const entries = await db.stockEntry.findMany({
     where,
     include: {
-      supplier: { select: { name: true } },
+      supplier: { select: { name: true, schoolId: true } },
       program: { select: { name: true, type: true } },
       user: { select: { name: true } },
       items: { include: { product: { select: { name: true, unit: true } } } },

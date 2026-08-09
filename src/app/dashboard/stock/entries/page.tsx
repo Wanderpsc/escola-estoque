@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, X, Barcode, ArrowDownToLine, PackagePlus } from "lucide-react";
+import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, X, Barcode, ArrowDownToLine, PackagePlus, Lock, LockOpen } from "lucide-react";
 import { PageHeader, Button, Badge, Modal, Input, Select, EmptyState, Table, Th, Td } from "@/components/ui";
 import { formatCurrency, formatDate, PROGRAM_TYPES } from "@/lib/utils";
 import BarcodeScanner from "@/components/BarcodeScanner";
@@ -11,6 +11,7 @@ import PasswordConfirmModal from "@/components/PasswordConfirmModal";
 interface EntryItem { id: string; productId: string; quantity: number; unitPrice: number; totalPrice: number; lot?: string; isExtra: boolean; product: { name: string; unit: string } }
 interface Entry {
   id: string; programId: string; invoiceNumber: string; invoiceDate: string; totalValue: number; observations?: string;
+  status: string; finalizedAt?: string;
   supplier: { id: string; name: string }; program: { id: string; name: string; type: string };
   user: { name: string }; items: EntryItem[];
 }
@@ -169,6 +170,34 @@ export default function StockEntriesPage() {
     });
   }
 
+  function requestFinalize(entry: Entry) {
+    setPendingAction({
+      label: `FINALIZAR a NF ${entry.invoiceNumber} (não haverá novas entregas vinculadas a ela)`,
+      fn: async () => {
+        const res = await fetch(`/api/stock/entries/${entry.id}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "FINALIZE" }),
+        });
+        if (res.ok) { toast.success(`NF ${entry.invoiceNumber} finalizada! Recursos fixados nos relatórios.`); load(); }
+        else { const d = await res.json(); toast.error(d.error ?? "Erro ao finalizar"); }
+      },
+    });
+  }
+
+  function requestReopen(entry: Entry) {
+    setPendingAction({
+      label: `reabrir a NF ${entry.invoiceNumber}`,
+      fn: async () => {
+        const res = await fetch(`/api/stock/entries/${entry.id}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "REOPEN" }),
+        });
+        if (res.ok) { toast.success(`NF ${entry.invoiceNumber} reaberta.`); load(); }
+        else { const d = await res.json(); toast.error(d.error ?? "Erro ao reabrir"); }
+      },
+    });
+  }
+
   async function handleBaixaManual() {
     if (!baixaItem) return;
     setSaving(true);
@@ -232,6 +261,10 @@ export default function StockEntriesPage() {
                         <Badge color={entry.program.type === "MERENDA" ? "green" : entry.program.type === "MANUTENCAO" ? "blue" : "purple"}>
                           {PROGRAM_TYPES[entry.program.type as keyof typeof PROGRAM_TYPES]?.label ?? entry.program.type}
                         </Badge>
+                        {entry.status === "FINALIZED"
+                          ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700"><Lock className="w-3 h-3" />Finalizada</span>
+                          : <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-500">Em aberto</span>
+                        }
                         <span className="text-sm text-slate-600">{entry.supplier.name}</span>
                         <span className="text-xs text-slate-400">{formatDate(entry.invoiceDate)}</span>
                       </div>
@@ -245,10 +278,19 @@ export default function StockEntriesPage() {
                   </div>
                   <div className="flex items-center gap-3 shrink-0 ml-2">
                     <span className="font-bold text-green-700">{formatCurrency(entry.totalValue)}</span>
-                    <button onClick={() => requestEdit(entry)} className="p-1.5 rounded-lg text-slate-400 hover:bg-blue-50 hover:text-blue-600" title="Editar (requer senha)">
+                    {entry.status === "FINALIZED" ? (
+                      <button onClick={() => requestReopen(entry)} className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50" title="Reabrir NF (requer senha)">
+                        <LockOpen className="w-4 h-4" />
+                      </button>
+                    ) : (
+                      <button onClick={() => requestFinalize(entry)} className="p-1.5 rounded-lg text-slate-400 hover:bg-emerald-50 hover:text-emerald-700" title="Finalizar NF (fixa nos relatórios)">
+                        <Lock className="w-4 h-4" />
+                      </button>
+                    )}
+                    <button onClick={() => requestEdit(entry)} disabled={entry.status === "FINALIZED"} className="p-1.5 rounded-lg text-slate-400 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-30" title="Editar (requer senha)">
                       <Pencil className="w-4 h-4" />
                     </button>
-                    <button onClick={() => requestDelete(entry)} className="p-1.5 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500" title="Excluir (requer senha)">
+                    <button onClick={() => requestDelete(entry)} disabled={entry.status === "FINALIZED"} className="p-1.5 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 disabled:opacity-30" title="Excluir (requer senha)">
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
