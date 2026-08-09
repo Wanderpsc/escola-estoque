@@ -48,6 +48,11 @@ export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id:
 
   const { id } = await params;
 
+  // Impede que o usuário exclua a si mesmo
+  if (id === (session.user as any).id) {
+    return NextResponse.json({ error: "Você não pode excluir sua própria conta" }, { status: 400 });
+  }
+
   // SCHOOL_ADMIN só pode desativar usuários da própria escola
   if (sessionRole === "SCHOOL_ADMIN") {
     const target = await db.user.findUnique({ where: { id }, select: { schoolId: true } });
@@ -57,11 +62,5 @@ export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id:
   }
 
   await db.user.update({ where: { id }, data: { active: false } });
-  // Tenta hard-delete; se houver registros vinculados, mantém como inativo
-  try {
-    await db.user.delete({ where: { id } });
-  } catch {
-    // Usuário tem histórico — mantém desativado (não aparece na listagem)
-  }
   return NextResponse.json({ ok: true });
 }
