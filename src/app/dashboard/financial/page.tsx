@@ -2,12 +2,12 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
-import { Plus, DollarSign, TrendingUp, TrendingDown, FileText, Trash2 } from "lucide-react";
+import { Plus, DollarSign, TrendingUp, TrendingDown, FileText, Trash2, ChevronDown, ChevronRight } from "lucide-react";
 import { PageHeader, Button, Badge, Modal, Input, Select, Textarea, EmptyState, Table, Th, Td } from "@/components/ui";
 import { formatCurrency, formatDate, PROGRAM_TYPES } from "@/lib/utils";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
-interface Program { id: string; name: string; type: string; budget: number }
+interface Program { id: string; name: string; type: string; budget: number; parentId: string | null; children: Program[] }
 interface Product { id: string; name: string; unit: string }
 interface Movement {
   id: string; type: "CREDIT" | "DEBIT"; category: string; amount: number;
@@ -103,28 +103,59 @@ export default function FinancialPage() {
     } finally { setSaving(false); }
   }
 
-  const programStats = programs.map((p) => {
-    // NFs = compras registradas (deve casar com o orçamento da parcela — exibição/validação)
+  // Calcula estatísticas para um conjunto de IDs de programa
+  function calcProgramStats(ids: string[]) {
     const nfSpent = entries
-      .filter(e => e.programId === p.id && !e.isPurchase && !e.invoiceNumber.startsWith("DEL-"))
+      .filter(e => ids.includes(e.programId) && !e.isPurchase && !e.invoiceNumber.startsWith("DEL-"))
       .reduce((s, e) => s + e.totalValue, 0);
-    // Gasto real = saídas/consumo registradas (o que foi efetivamente consumido)
     const exitSpent = exitData
-      .filter(e => e.programId === p.id)
+      .filter(e => ids.includes(e.programId))
       .flatMap(e => e.items)
       .reduce((s, i) => s + i.totalPrice, 0);
-    const progMovements = movements.filter(m => m.programId === p.id);
+    const progMovements = movements.filter(m => ids.includes(m.programId));
     const creditAmount = progMovements.filter(m => m.type === "CREDIT").reduce((s, m) => s + m.amount, 0);
-    // Exclui EXIT-* para não duplicar com exitSpent
     const debitAmount = progMovements
       .filter(m => m.type === "DEBIT" && !m.reference?.startsWith("EXIT-"))
       .reduce((s, m) => s + m.amount, 0);
-    const totalBudget = p.budget + creditAmount;
+    return { nfSpent, exitSpent, creditAmount, debitAmount };
+  }
+
+  // Apenas programas raiz (sem parent) — evita duplicar crianças no consolidado
+  const topLevelPrograms = programs.filter(p => !p.parentId);
+
+  const programStats = topLevelPrograms.map((p) => {
+    const allIds = [p.id, ...(p.children ?? []).map(c => c.id)];
+    const { nfSpent, exitSpent, creditAmount, debitAmount } = calcProgramStats(allIds);
+    // Orçamento total = pai + todas as parcelas
+    const childrenBudget = (p.children ?? []).reduce((s, c) => s + c.budget, 0);
+    const totalBudget = p.budget + childrenBudget + creditAmount;
     const spent = exitSpent + debitAmount;
     const balance = totalBudget - spent;
     const pct = totalBudget > 0 ? (spent / totalBudget) * 100 : 0;
-    return { ...p, totalBudget, spent, balance, pct, nfSpent, exitSpent };
+
+    // Estatísticas individuais de cada parcela (children)
+    const childStats = (p.children ?? []).map((child) => {
+      const cs = calcProgramStats([child.id]);
+      const childTotalBudget = child.budget + cs.creditAmount;
+      const childSpent = cs.exitSpent + cs.debitAmount;
+      return {
+        ...child,
+        nfSpent: cs.nfSpent,
+        exitSpent: cs.exitSpent,
+        totalBudget: childTotalBudget,
+        spent: childSpent,
+        balance: childTotalBudget - childSpent,
+        pct: childTotalBudget > 0 ? (childSpent / childTotalBudget) * 100 : 0,
+      };
+    });
+
+    return { ...p, totalBudget, spent, balance, pct, nfSpent, exitSpent, childStats };
   });
+
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  function toggleExpand(id: string) {
+    setExpandedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
 
   const chartData = programStats.map((p) => ({
     name: p.name.length > 10 ? p.name.slice(0, 10) + "…" : p.name,
@@ -164,43 +195,95 @@ export default function FinancialPage() {
         <div className="flex justify-center py-16"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>
       ) : (
         <>
-          {/* Cards de programas */}
+          {/* Cards de programas (agrupados por raiz + parcelas) */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
             {programStats.map((p) => (
-              <div key={p.id} className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-                <div className="flex items-center justify-between mb-3">
-                  <Badge color={p.type === "MERENDA" ? "green" : p.type === "MANUTENCAO" ? "blue" : "purple"}>
-                    {PROGRAM_TYPES[p.type as keyof typeof PROGRAM_TYPES]?.label ?? p.type}
-                  </Badge>
-                  <span className={`text-xs font-semibold ${p.pct > 90 ? "text-red-600" : p.pct > 70 ? "text-yellow-600" : "text-green-600"}`}>
-                    {p.pct.toFixed(1)}% usado
-                  </span>
-                </div>
-                <h3 className="font-semibold text-slate-800 mb-3">{p.name}</h3>
-                <div className="space-y-1 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Orçamento (parcela)</span>
-                    <span className="font-semibold">{formatCurrency(p.totalBudget)}</span>
-                  </div>
-                  <div className="flex justify-between text-xs py-0.5">
-                    <span className="text-slate-400">NFs registradas</span>
-                    <span className={`font-medium ${Math.abs(p.nfSpent - p.totalBudget) < 0.01 ? "text-green-600" : p.nfSpent > p.totalBudget ? "text-red-500" : "text-amber-600"}`}>
-                      {formatCurrency(p.nfSpent)}
-                      {Math.abs(p.nfSpent - p.totalBudget) < 0.01 && " ✓"}
+              <div key={p.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <Badge color={p.type === "MERENDA" ? "green" : p.type === "MANUTENCAO" ? "blue" : "purple"}>
+                      {PROGRAM_TYPES[p.type as keyof typeof PROGRAM_TYPES]?.label ?? p.type}
+                    </Badge>
+                    <span className={`text-xs font-semibold ${p.pct > 90 ? "text-red-600" : p.pct > 70 ? "text-yellow-600" : "text-green-600"}`}>
+                      {p.pct.toFixed(1)}% usado
                     </span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Consumo (saídas)</span>
-                    <span className="font-semibold text-red-600">{formatCurrency(p.spent)}</span>
+                  <h3 className="font-semibold text-slate-800 mb-3">{p.name}</h3>
+                  <div className="space-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Orçamento total</span>
+                      <span className="font-semibold">{formatCurrency(p.totalBudget)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs py-0.5">
+                      <span className="text-slate-400">NFs registradas</span>
+                      <span className={`font-medium ${Math.abs(p.nfSpent - p.totalBudget) < 0.01 ? "text-green-600" : p.nfSpent > p.totalBudget ? "text-red-500" : "text-amber-600"}`}>
+                        {formatCurrency(p.nfSpent)}
+                        {Math.abs(p.nfSpent - p.totalBudget) < 0.01 && " ✓"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Consumo (saídas)</span>
+                      <span className="font-semibold text-red-600">{formatCurrency(p.spent)}</span>
+                    </div>
+                    <div className="flex justify-between border-t border-slate-100 pt-1 mt-1">
+                      <span className="text-slate-600 font-medium">Saldo</span>
+                      <span className={`font-bold ${p.balance >= 0 ? "text-green-700" : "text-red-700"}`}>{formatCurrency(p.balance)}</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between border-t border-slate-100 pt-1 mt-1">
-                    <span className="text-slate-600 font-medium">Saldo</span>
-                    <span className={`font-bold ${p.balance >= 0 ? "text-green-700" : "text-red-700"}`}>{formatCurrency(p.balance)}</span>
+                  <div className="mt-3 w-full bg-slate-100 rounded-full h-2">
+                    <div className={`h-2 rounded-full ${p.pct > 90 ? "bg-red-500" : p.pct > 70 ? "bg-yellow-500" : "bg-green-500"}`} style={{ width: `${Math.min(p.pct, 100)}%` }} />
                   </div>
                 </div>
-                <div className="mt-3 w-full bg-slate-100 rounded-full h-2">
-                  <div className={`h-2 rounded-full ${p.pct > 90 ? "bg-red-500" : p.pct > 70 ? "bg-yellow-500" : "bg-green-500"}`} style={{ width: `${Math.min(p.pct, 100)}%` }} />
-                </div>
+
+                {/* Parcelas (children) */}
+                {p.childStats && p.childStats.length > 0 && (
+                  <div className="border-t border-slate-100">
+                    <button
+                      onClick={() => toggleExpand(p.id)}
+                      className="w-full flex items-center justify-between px-5 py-2.5 text-xs font-semibold text-slate-500 hover:bg-slate-50 transition-colors"
+                    >
+                      <span>{p.childStats.length} parcela(s) / subdivisão(ões)</span>
+                      {expandedIds.has(p.id) ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                    </button>
+                    {expandedIds.has(p.id) && (
+                      <div className="bg-slate-50 divide-y divide-slate-100 border-t border-slate-100">
+                        {p.childStats.map((child) => (
+                          <div key={child.id} className="px-5 py-3">
+                            <div className="flex items-center justify-between mb-1.5">
+                              <span className="text-xs font-semibold text-slate-700">{child.name}</span>
+                              <span className={`text-xs font-semibold ${child.pct > 90 ? "text-red-600" : child.pct > 70 ? "text-yellow-600" : "text-green-600"}`}>
+                                {child.pct.toFixed(0)}%
+                              </span>
+                            </div>
+                            <div className="space-y-0.5 text-xs">
+                              <div className="flex justify-between text-slate-500">
+                                <span>Orçamento</span>
+                                <span className="font-medium text-slate-700">{formatCurrency(child.totalBudget)}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-slate-400">NFs</span>
+                                <span className={`font-medium ${Math.abs(child.nfSpent - child.totalBudget) < 0.01 ? "text-green-600" : child.nfSpent > child.totalBudget ? "text-red-500" : "text-amber-600"}`}>
+                                  {formatCurrency(child.nfSpent)}{Math.abs(child.nfSpent - child.totalBudget) < 0.01 && " ✓"}
+                                </span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-slate-400">Consumo</span>
+                                <span className="text-red-600 font-medium">{formatCurrency(child.spent)}</span>
+                              </div>
+                              <div className="flex justify-between border-t border-slate-200 pt-1 mt-0.5">
+                                <span className="font-semibold text-slate-600">Saldo</span>
+                                <span className={`font-bold ${child.balance >= 0 ? "text-green-700" : "text-red-600"}`}>{formatCurrency(child.balance)}</span>
+                              </div>
+                            </div>
+                            <div className="mt-1.5 w-full bg-slate-200 rounded-full h-1">
+                              <div className={`h-1 rounded-full ${child.pct > 90 ? "bg-red-500" : child.pct > 70 ? "bg-yellow-400" : "bg-green-500"}`} style={{ width: `${Math.min(child.pct, 100)}%` }} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>

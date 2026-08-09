@@ -3,11 +3,11 @@
 import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useSession } from "next-auth/react";
-import { BarChart3, FileDown, Package, DollarSign, ArrowDownLeft, ArrowUpRight, Settings, ImageIcon, Save, ShoppingBag, Printer, ShoppingCart, CalendarCheck } from "lucide-react";
+import { BarChart3, FileDown, Package, DollarSign, ArrowDownLeft, ArrowUpRight, Settings, ImageIcon, Save, Printer, ShoppingCart, CalendarCheck, ClipboardList } from "lucide-react";
 import { PageHeader, Button, Select, Badge } from "@/components/ui";
 import { formatCurrency, formatDate, PROGRAM_TYPES, EXIT_REASONS } from "@/lib/utils";
 
-type ReportType = "balance" | "entries" | "exits" | "financial" | "purchases" | "needs_purchase" | "annual_execution";
+type ReportType = "balance" | "entries" | "exits" | "financial" | "needs_purchase" | "annual_execution" | "accountability";
 
 export default function ReportsPage() {
   const { data: session } = useSession();
@@ -25,6 +25,8 @@ export default function ReportsPage() {
   const [reportYear, setReportYear] = useState(new Date().getFullYear());
   // annual_execution retorna objeto {year, programs, totals}, não array
   const [annualData, setAnnualData] = useState<any | null>(null);
+  // accountability retorna array de programas com parcelas
+  const [accountabilityData, setAccountabilityData] = useState<any[] | null>(null);
 
   useEffect(() => {
     fetch("/api/programs").then((r) => r.ok ? r.json() : []).then(setPrograms);
@@ -89,15 +91,17 @@ export default function ReportsPage() {
         entries:          q ? `/api/stock/entries?${q}` : "/api/stock/entries",
         exits:            q ? `/api/stock/exits?${q}`   : "/api/stock/exits",
         financial:        q ? `/api/financial/movements?${q}` : "/api/financial/movements",
-        purchases:        `/api/stock/entries?purchases=true${qs}`,
         needs_purchase:   q ? `/api/stock/balance?${q}` : "/api/stock/balance",
         annual_execution: `/api/reports/annual-execution?year=${reportYear}${reportProgramId ? `&programId=${reportProgramId}` : ""}`,
+        accountability:   `/api/reports/accountability?${p.toString()}`,
       };
       const res = await fetch(endpoints[type]);
       if (!res.ok) { toast.error("Erro ao gerar relatório"); return; }
       const json = await res.json();
       if (type === "annual_execution") {
         setAnnualData(json); setData([]);
+      } else if (type === "accountability") {
+        setAccountabilityData(json); setData([]);
       } else if (type === "needs_purchase") {
         const deficit = json
           .filter((r: any) => r.balance < r.minStock || r.balance <= 0)
@@ -115,7 +119,7 @@ export default function ReportsPage() {
   }
 
   async function exportPDF(printMode = false) {
-    if (!data) return;
+    if (!data && !annualData && !accountabilityData) return;
     setGenerating(true);
     try {
       const { default: jsPDF } = await import("jspdf");
@@ -128,9 +132,9 @@ export default function ReportsPage() {
         entries: "Relatório de Entradas (Notas Fiscais)",
         exits: "Relatório de Saídas",
         financial: "Relatório Financeiro",
-        purchases: "Relatório de Compras Informais",
         needs_purchase: "Lista de Compras — Produtos Abaixo do Estoque Mínimo",
         annual_execution: `Execução Anual de Recursos — ${reportYear}`,
+        accountability: "Prestação de Contas por Programa / Parcela",
       };
 
       // Cabeçalho personalizado
@@ -227,29 +231,6 @@ export default function ReportsPage() {
         const yExits = (doc as any).lastAutoTable.finalY + 8;
         doc.setFont("helvetica", "bold");
         doc.text(`Total Saídas: ${formatCurrency(totalExits)}`, 14, yExits);
-      } else if (type === "purchases") {
-        autoTable(doc, {
-          startY: 40,
-          head: [["Data", "Programa", "Fornecedor", "Produto", "Qtd", "Vl. Unit.", "Total", "Obs."]],
-          body: data.flatMap((r: any) =>
-            r.items.map((i: any) => [
-              formatDate(r.invoiceDate),
-              PROGRAM_TYPES[r.program?.type as keyof typeof PROGRAM_TYPES]?.label ?? r.program?.type ?? "",
-              r.supplier.name,
-              `${i.product.name} (${i.product.unit})`,
-              i.quantity.toFixed(2),
-              formatCurrency(i.unitPrice),
-              formatCurrency(i.totalPrice),
-              r.observations ?? "",
-            ])
-          ),
-          styles: { fontSize: 7 },
-          headStyles: { fillColor: [180, 83, 9] },
-        });
-        const totalP = data.reduce((s: number, r: any) => s + r.totalValue, 0);
-        const yP = (doc as any).lastAutoTable.finalY + 8;
-        doc.setFont("helvetica", "bold");
-        doc.text(`Total Compras Informais: ${formatCurrency(totalP)}`, 14, yP);
       } else if (type === "needs_purchase") {
         const totalEstimated = data.reduce((s: number, r: any) => s + r.needed * (r.avgPrice ?? 0), 0);
         const zerados = data.filter((r: any) => r.balance <= 0).length;
@@ -286,10 +267,10 @@ export default function ReportsPage() {
         doc.setTextColor(124, 58, 237);
         doc.text(`Valor estimado para reposição: ${formatCurrency(totalEstimated)}`, 80, y2);
         doc.setTextColor(0, 0, 0);
-      } else {
+      } else if (type !== "accountability" && type !== "annual_execution") {
         // EXIT-EXTRA-* são informacionais (já contabilizados em exitSpent no saldo financeiro)
-        const mainData = data.filter((r: any) => !r.reference?.startsWith("EXIT-"));
-        const exitExtraData = data.filter((r: any) => r.reference?.startsWith("EXIT-"));
+        const mainData = (data ?? []).filter((r: any) => !r.reference?.startsWith("EXIT-"));
+        const exitExtraData = (data ?? []).filter((r: any) => r.reference?.startsWith("EXIT-"));
 
         autoTable(doc, {
           startY: 38,
@@ -414,6 +395,85 @@ export default function ReportsPage() {
         }
       }
 
+      // ── PDF: Prestação de Contas ─────────────────────────────────────────
+      if (type === "accountability" && accountabilityData) {
+        let yAcc = 38;
+        for (const prog of accountabilityData) {
+          if (yAcc > 180) { doc.addPage(); yAcc = 20; }
+          doc.setFontSize(11);
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(30, 64, 175);
+          doc.text(`Programa: ${prog.name}`, 14, yAcc);
+          doc.setFontSize(8);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(100, 116, 139);
+          doc.text(`Orçamento total: ${formatCurrency(prog.totalBudget)}  |  NFs: ${formatCurrency(prog.totalNF)}  |  Consumo: ${formatCurrency(prog.totalConsumption)}  |  Saldo: ${formatCurrency(prog.balance)}`, 14, yAcc + 6);
+          doc.setTextColor(0, 0, 0);
+          yAcc += 14;
+
+          const allParcelas = [
+            ...(prog.directNFs.length > 0 ? [{ id: prog.id, name: `(Direto — sem parcela)`, budget: prog.budget, totalBudget: prog.budget, nfTotal: prog.directNFTotal ?? 0, consumptionTotal: prog.directConsumptionTotal ?? 0, balance: prog.budget - (prog.directConsumptionTotal ?? 0), nfs: prog.directNFs, consumptions: prog.directConsumptions }] : []),
+            ...prog.parcelas,
+          ];
+
+          for (const parc of allParcelas) {
+            if (yAcc > 180) { doc.addPage(); yAcc = 20; }
+            doc.setFontSize(9);
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(51, 65, 85);
+            doc.text(`  Parcela: ${parc.name}`, 14, yAcc);
+            doc.setFontSize(7);
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(100, 116, 139);
+            doc.text(`  Orç: ${formatCurrency(parc.totalBudget)}  |  NFs: ${formatCurrency(parc.nfTotal)}  |  Consumo: ${formatCurrency(parc.consumptionTotal)}  |  Saldo: ${formatCurrency(parc.balance)}`, 14, yAcc + 5);
+            doc.setTextColor(0, 0, 0);
+            yAcc += 12;
+
+            if (parc.nfs && parc.nfs.length > 0) {
+              if (yAcc > 175) { doc.addPage(); yAcc = 20; }
+              autoTable(doc, {
+                startY: yAcc,
+                head: [["Nota Fiscal", "Fornecedor", "Data", "Valor", "Status"]],
+                body: parc.nfs.map((nf: any) => [
+                  nf.invoiceNumber,
+                  nf.supplier,
+                  new Date(nf.invoiceDate).toLocaleDateString("pt-BR"),
+                  formatCurrency(nf.totalValue),
+                  nf.status === "FINALIZED" ? "Finalizada" : "Aberta",
+                ]),
+                styles: { fontSize: 7 },
+                headStyles: { fillColor: [219, 234, 254], textColor: [30, 64, 175] },
+                margin: { left: 18 },
+              });
+              yAcc = (doc as any).lastAutoTable.finalY + 4;
+            }
+
+            if (parc.consumptions && parc.consumptions.length > 0) {
+              if (yAcc > 175) { doc.addPage(); yAcc = 20; }
+              autoTable(doc, {
+                startY: yAcc,
+                head: [["Data Saída", "Motivo", "Responsável", "Valor Consumido"]],
+                body: parc.consumptions.map((c: any) => [
+                  new Date(c.exitDate).toLocaleDateString("pt-BR"),
+                  c.reason,
+                  c.user ?? "—",
+                  formatCurrency(c.total),
+                ]),
+                styles: { fontSize: 7 },
+                headStyles: { fillColor: [254, 243, 199], textColor: [146, 64, 14] },
+                margin: { left: 18 },
+              });
+              yAcc = (doc as any).lastAutoTable.finalY + 6;
+            }
+          }
+
+          // Linha separadora entre programas
+          doc.setDrawColor(226, 232, 240);
+          doc.line(14, yAcc, 283, yAcc);
+          yAcc += 6;
+        }
+      }
+
       // Rodapé
       const pageCount = doc.getNumberOfPages();
       for (let i = 1; i <= pageCount; i++) {
@@ -444,9 +504,9 @@ export default function ReportsPage() {
     { value: "entries", label: "Entradas (Notas Fiscais)", icon: ArrowUpRight, desc: "Histórico de entradas com dados da NF" },
     { value: "exits", label: "Saídas de Estoque", icon: ArrowDownLeft, desc: "Histórico de saídas e consumo" },
     { value: "financial", label: "Movimentações Financeiras", icon: DollarSign, desc: "Créditos e débitos por programa" },
-    { value: "purchases", label: "Compras Informais", icon: ShoppingBag, desc: "Compras realizadas sem nota fiscal formal" },
     { value: "needs_purchase", label: "Lista de Compras", icon: ShoppingCart, desc: "Produtos abaixo do estoque mínimo que precisam ser comprados" },
     { value: "annual_execution", label: "Execução Anual", icon: CalendarCheck, desc: "Recursos acumulados/executados por programa no ano (NFs finalizadas)" },
+    { value: "accountability", label: "Prestação de Contas", icon: ClipboardList, desc: "Relatório completo: programa → parcelas → NFs → entregas → consumo → saldo" },
   ];
 
   return (
@@ -516,7 +576,7 @@ export default function ReportsPage() {
         {reportTypes.map((r) => (
           <button
             key={r.value}
-            onClick={() => { setType(r.value as ReportType); setData(null); }}
+            onClick={() => { setType(r.value as ReportType); setData(null); setAnnualData(null); setAccountabilityData(null); }}
             className={`text-left p-4 rounded-xl border-2 transition-all ${type === r.value ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white hover:border-slate-300"}`}
           >
             <div className={`w-9 h-9 rounded-lg flex items-center justify-center mb-3 ${type === r.value ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-500"}`}>
@@ -568,8 +628,8 @@ export default function ReportsPage() {
 
       <div className="flex gap-3 mb-6">
         <Button onClick={generateReport} loading={loading}><BarChart3 className="w-4 h-4" />Gerar Relatório</Button>
-        {(data && data.length > 0 || annualData) && <Button variant="secondary" onClick={() => exportPDF(true)} loading={generating}><Printer className="w-4 h-4" />Imprimir</Button>}
-        {(data && data.length > 0 || annualData) && <Button variant="secondary" onClick={() => exportPDF(false)} loading={generating}><FileDown className="w-4 h-4" />Exportar PDF</Button>}
+        {(data && data.length > 0 || annualData || accountabilityData) && <Button variant="secondary" onClick={() => exportPDF(true)} loading={generating}><Printer className="w-4 h-4" />Imprimir</Button>}
+        {(data && data.length > 0 || annualData || accountabilityData) && <Button variant="secondary" onClick={() => exportPDF(false)} loading={generating}><FileDown className="w-4 h-4" />Exportar PDF</Button>}
       </div>
 
       {/* Prévia do relatório */}
@@ -665,34 +725,6 @@ export default function ReportsPage() {
                 <div className="px-5 py-3 bg-red-50 border-t-2 border-red-100 flex justify-between items-center">
                   <span className="text-xs text-slate-500">{data.length} saída(s)</span>
                   <span className="text-sm font-bold text-red-700">Total saídas: {formatCurrency(data.reduce((s: number, r: any) => s + r.items.reduce((ss: number, i: any) => ss + i.totalPrice, 0), 0))}</span>
-                </div>
-              </>
-            )}
-            {type === "purchases" && (
-              <>
-                <table className="w-full text-sm">
-                  <thead><tr className="bg-slate-50">
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Data</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Programa</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Fornecedor</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Produto</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 border-b">Qtd</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 border-b">Valor</th>
-                  </tr></thead>
-                  <tbody>{data.slice(0, 20).flatMap((r: any) => r.items.map((i: any, idx: number) => (
-                    <tr key={`${r.id}-${idx}`} className="border-b border-slate-50 hover:bg-slate-50">
-                      <td className="px-4 py-2.5 text-slate-500">{formatDate(r.invoiceDate)}</td>
-                      <td className="px-4 py-2.5 text-xs text-slate-500">{PROGRAM_TYPES[r.program?.type as keyof typeof PROGRAM_TYPES]?.label}</td>
-                      <td className="px-4 py-2.5">{r.supplier.name}</td>
-                      <td className="px-4 py-2.5 font-medium text-slate-700">{i.product.name} <span className="text-slate-400">({i.product.unit})</span></td>
-                      <td className="px-4 py-2.5 text-right">{i.quantity.toFixed(2)}</td>
-                      <td className="px-4 py-2.5 text-right font-semibold text-amber-700">{formatCurrency(i.totalPrice)}</td>
-                    </tr>
-                  )))}</tbody>
-                </table>
-                <div className="px-5 py-3 bg-amber-50 border-t-2 border-amber-100 flex justify-between items-center">
-                  <span className="text-xs text-slate-500">{data.length} compra(s)</span>
-                  <span className="text-sm font-bold text-amber-700">Total compras informais: {formatCurrency(data.reduce((s: number, r: any) => s + r.totalValue, 0))}</span>
                 </div>
               </>
             )}
@@ -884,6 +916,164 @@ export default function ReportsPage() {
               <p className="text-sm">Nenhuma NF finalizada em {annualData.year}.</p>
               <p className="text-xs mt-1">Finalize NFs na página de Entradas para fixar os recursos nos relatórios.</p>
             </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Prévia: Prestação de Contas ─────────────────── */}
+      {type === "accountability" && accountabilityData && (
+        <div className="space-y-6">
+          {accountabilityData.length === 0 ? (
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-5 py-10 text-center text-slate-400">
+              <p className="text-sm">Nenhum programa encontrado com os filtros selecionados.</p>
+            </div>
+          ) : (
+            accountabilityData.map((prog: any) => (
+              <div key={prog.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                {/* Cabeçalho do programa */}
+                <div className="px-5 py-4 bg-blue-50 border-b border-blue-100 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <Badge color={prog.type === "MERENDA" ? "green" : prog.type === "MANUTENCAO" ? "blue" : "purple"}>
+                        {PROGRAM_TYPES[prog.type as keyof typeof PROGRAM_TYPES]?.label ?? prog.type}
+                      </Badge>
+                      <h3 className="font-bold text-slate-800">{prog.name}</h3>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      {prog.parcelas.length} parcela(s) · {prog.directNFs.length} NF(s) diretas
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-4 gap-4 text-right">
+                    <div>
+                      <p className="text-xs text-slate-500">Orçamento</p>
+                      <p className="font-bold text-slate-800">{formatCurrency(prog.totalBudget)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500">NFs Emitidas</p>
+                      <p className={`font-bold ${prog.totalNF > prog.totalBudget ? "text-red-600" : "text-amber-600"}`}>{formatCurrency(prog.totalNF)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500">Consumido</p>
+                      <p className="font-bold text-red-600">{formatCurrency(prog.totalConsumption)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500">Saldo</p>
+                      <p className={`font-bold ${prog.balance >= 0 ? "text-green-700" : "text-red-700"}`}>{formatCurrency(prog.balance)}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Parcelas */}
+                <div className="divide-y divide-slate-100">
+                  {[
+                    /* NFs diretas no programa pai (sem parcela) */
+                    ...(prog.directNFs.length > 0 ? [{
+                      id: prog.id + "-direct",
+                      name: "(Lançamentos diretos — sem parcela)",
+                      budget: prog.budget,
+                      totalBudget: prog.budget,
+                      nfTotal: prog.directNFTotal ?? 0,
+                      consumptionTotal: prog.directConsumptionTotal ?? 0,
+                      balance: prog.budget - (prog.directConsumptionTotal ?? 0),
+                      nfs: prog.directNFs,
+                      consumptions: prog.directConsumptions,
+                    }] : []),
+                    ...prog.parcelas,
+                  ].map((parc: any) => (
+                    <div key={parc.id} className="px-5 py-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-slate-600 uppercase tracking-wide">Parcela:</span>
+                          <span className="font-semibold text-slate-800">{parc.name}</span>
+                        </div>
+                        <div className="flex gap-5 text-xs text-right">
+                          <div>
+                            <span className="text-slate-400 block">Orçamento</span>
+                            <span className="font-semibold text-slate-700">{formatCurrency(parc.totalBudget)}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 block">NFs</span>
+                            <span className={`font-semibold ${parc.nfTotal > parc.totalBudget ? "text-red-500" : Math.abs(parc.nfTotal - parc.totalBudget) < 0.01 ? "text-green-600" : "text-amber-600"}`}>
+                              {formatCurrency(parc.nfTotal)}{Math.abs(parc.nfTotal - parc.totalBudget) < 0.01 && " ✓"}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 block">Consumido</span>
+                            <span className="font-semibold text-red-600">{formatCurrency(parc.consumptionTotal)}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 block">Saldo</span>
+                            <span className={`font-bold ${parc.balance >= 0 ? "text-green-700" : "text-red-600"}`}>{formatCurrency(parc.balance)}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* NFs desta parcela */}
+                      {parc.nfs && parc.nfs.length > 0 && (
+                        <div className="mb-3">
+                          <p className="text-xs font-semibold text-blue-700 mb-1.5">Notas Fiscais ({parc.nfs.length})</p>
+                          <table className="w-full text-xs border border-blue-100 rounded-lg overflow-hidden">
+                            <thead>
+                              <tr className="bg-blue-50">
+                                <th className="px-3 py-1.5 text-left text-blue-700">NF</th>
+                                <th className="px-3 py-1.5 text-left text-blue-700">Fornecedor</th>
+                                <th className="px-3 py-1.5 text-left text-blue-700">Data</th>
+                                <th className="px-3 py-1.5 text-right text-blue-700">Valor</th>
+                                <th className="px-3 py-1.5 text-center text-blue-700">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {parc.nfs.map((nf: any) => (
+                                <tr key={nf.id} className="border-t border-blue-50 hover:bg-blue-50/40">
+                                  <td className="px-3 py-1.5 font-medium text-slate-700">NF {nf.invoiceNumber}</td>
+                                  <td className="px-3 py-1.5 text-slate-600">{nf.supplier}</td>
+                                  <td className="px-3 py-1.5 text-slate-500">{formatDate(nf.invoiceDate)}</td>
+                                  <td className="px-3 py-1.5 text-right font-semibold text-green-700">{formatCurrency(nf.totalValue)}</td>
+                                  <td className="px-3 py-1.5 text-center">
+                                    <Badge color={nf.status === "FINALIZED" ? "green" : "yellow"}>{nf.status === "FINALIZED" ? "Finalizada" : "Aberta"}</Badge>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+
+                      {/* Consumos desta parcela */}
+                      {parc.consumptions && parc.consumptions.length > 0 && (
+                        <div>
+                          <p className="text-xs font-semibold text-red-700 mb-1.5">Consumo / Saídas ({parc.consumptions.length})</p>
+                          <table className="w-full text-xs border border-red-100 rounded-lg overflow-hidden">
+                            <thead>
+                              <tr className="bg-red-50">
+                                <th className="px-3 py-1.5 text-left text-red-700">Data</th>
+                                <th className="px-3 py-1.5 text-left text-red-700">Motivo</th>
+                                <th className="px-3 py-1.5 text-left text-red-700">Responsável</th>
+                                <th className="px-3 py-1.5 text-right text-red-700">Valor</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {parc.consumptions.map((c: any) => (
+                                <tr key={c.id} className="border-t border-red-50 hover:bg-red-50/40">
+                                  <td className="px-3 py-1.5 text-slate-500">{formatDate(c.exitDate)}</td>
+                                  <td className="px-3 py-1.5 text-slate-600">{c.reason}</td>
+                                  <td className="px-3 py-1.5 text-slate-600">{c.user}</td>
+                                  <td className="px-3 py-1.5 text-right font-semibold text-red-700">{formatCurrency(c.total)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+
+                      {parc.nfs?.length === 0 && parc.consumptions?.length === 0 && (
+                        <p className="text-xs text-slate-400 italic">Nenhum lançamento nesta parcela.</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))
           )}
         </div>
       )}
