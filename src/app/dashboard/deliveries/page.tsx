@@ -200,79 +200,49 @@ function NewDeliveryModal({
           <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-3">1. Identificação da Entrega</p>
           <div className="grid grid-cols-2 gap-3">
 
-            {/* NF selecionável — se existir no sistema auto-preenche; se não, mostra campo manual */}
-            <div className="col-span-2">
-              {nfs.length > 0 ? (
-                <select value={nfEntryId || (nfRef ? "__manual__" : "")}
-                  onChange={e => {
-                    const val = e.target.value;
-                    if (val === "__manual__") { setNfEntryId(""); setNfRef(""); setInvoiceSeries(""); setProgramId(""); }
-                    else { handleNfEntrySelect(val); }
-                  }}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  <option value="">— Selecione a Nota Fiscal —</option>
-                  {nfs.map(n => {
-                    const parc = n.invoiceSeries ? ` · Parcela ${n.invoiceSeries}` : "";
-                    return <option key={n.id} value={n.id}>NF {n.invoiceNumber}{parc} — {n.program.name} — {formatCurrency(n.totalValue)}</option>;
-                  })}
-                  <option value="__manual__">✏ Digitar número manualmente (NF não está no sistema)</option>
-                </select>
-              ) : (
-                <input value={nfRef} onChange={e => setNfRef(e.target.value)} placeholder="Ex: 000123"
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              )}
-              {/* Campo manual visível quando "digitar manualmente" está selecionado */}
-              {nfs.length > 0 && !nfEntryId && (
-                <input value={nfRef} onChange={e => setNfRef(e.target.value)} placeholder="Digite o número da NF"
-                  className="mt-2 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              )}
+            {/* Nº da NF */}
+            <div>
+              <label className="text-xs font-medium text-slate-600 mb-1 block">Nº da Nota Fiscal</label>
+              <input value={nfRef} onChange={e => setNfRef(e.target.value)} placeholder="Ex: 000123"
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
 
-            {/* Parcela / Série — select com parcelas fixas + opções das NFs + campo manual */}
+            {/* Parcela / Série — select fixo 1ª–11ª + manual */}
             <div>
               <label className="text-xs font-medium text-slate-600 mb-1 block">Parcela / Série</label>
-              {nfEntryId ? (
-                <div className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700">
-                  {invoiceSeries || <span className="text-slate-400">—</span>}
-                </div>
-              ) : (
-                <>
-                  <select
-                    value={invoiceSeries.startsWith("__") || !["1ª Parcela","2ª Parcela","3ª Parcela","4ª Parcela","5ª Parcela","6ª Parcela","7ª Parcela",...new Set(nfs.map(n=>n.invoiceSeries).filter(Boolean))].includes(invoiceSeries) && invoiceSeries ? "__other__" : invoiceSeries}
-                    onChange={e => { if (e.target.value !== "__other__") setInvoiceSeries(e.target.value); else setInvoiceSeries(""); }}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    <option value="">— Selecione a parcela —</option>
-                    {["1ª Parcela","2ª Parcela","3ª Parcela","4ª Parcela","5ª Parcela","6ª Parcela","7ª Parcela"].map(s =>
-                      <option key={s} value={s}>{s}</option>
+              {(() => {
+                const fixed = ["1ª Parcela","2ª Parcela","3ª Parcela","4ª Parcela","5ª Parcela","6ª Parcela","7ª Parcela","8ª Parcela","9ª Parcela","10ª Parcela","11ª Parcela"];
+                const nfSeries = [...new Set(nfs.map(n => n.invoiceSeries).filter(Boolean))].filter(s => !fixed.includes(s as string)) as string[];
+                const isCustom = invoiceSeries && !fixed.includes(invoiceSeries) && !nfSeries.includes(invoiceSeries);
+                return (
+                  <>
+                    <select
+                      value={isCustom ? "__other__" : invoiceSeries}
+                      onChange={e => { if (e.target.value !== "__other__") setInvoiceSeries(e.target.value); else setInvoiceSeries(""); }}
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                      <option value="">— Selecione a parcela —</option>
+                      {fixed.map(s => <option key={s} value={s}>{s}</option>)}
+                      {nfSeries.map(s => <option key={s} value={s}>{s}</option>)}
+                      <option value="__other__">✏ Outra (digitar)</option>
+                    </select>
+                    {isCustom && (
+                      <input value={invoiceSeries} onChange={e => setInvoiceSeries(e.target.value)}
+                        placeholder="Ex: 12ª Parcela..."
+                        className="mt-1.5 w-full border border-blue-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                     )}
-                    {[...new Set(nfs.map(n => n.invoiceSeries).filter(Boolean))].filter(s => !["1ª Parcela","2ª Parcela","3ª Parcela","4ª Parcela","5ª Parcela","6ª Parcela","7ª Parcela"].includes(s as string)).map(s =>
-                      <option key={s as string} value={s as string}>{s}</option>
-                    )}
-                    <option value="__other__">✏ Outra (digitar manualmente)</option>
-                  </select>
-                  {(invoiceSeries === "" || (!["1ª Parcela","2ª Parcela","3ª Parcela","4ª Parcela","5ª Parcela","6ª Parcela","7ª Parcela"].includes(invoiceSeries) && ![...nfs.map(n=>n.invoiceSeries)].includes(invoiceSeries) && invoiceSeries && invoiceSeries !== "__other__")) && (
-                    <input value={invoiceSeries === "__other__" ? "" : invoiceSeries} onChange={e => setInvoiceSeries(e.target.value)}
-                      placeholder="Ex: 8ª Parcela, Série 002..."
-                      className="mt-1.5 w-full border border-blue-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                  )}
-                </>
-              )}
+                  </>
+                );
+              })()}
             </div>
 
-            {/* Programa — auto-preenche da NF ou manual */}
+            {/* Programa */}
             <div>
               <label className="text-xs font-medium text-slate-600 mb-1 block">Programa *</label>
-              {nfEntryId ? (
-                <div className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 font-medium">
-                  {programs.find(p => p.id === programId)?.name || <span className="text-slate-400">—</span>}
-                </div>
-              ) : (
-                <select value={programId} onChange={e => setProgramId(e.target.value)}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  <option value="">— Selecione o programa —</option>
-                  {programs.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
-              )}
+              <select value={programId} onChange={e => setProgramId(e.target.value)}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">— Selecione o programa —</option>
+                {programs.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
             </div>
 
             {/* Data e Hora */}
@@ -284,7 +254,7 @@ function NewDeliveryModal({
             </div>
 
             {/* Observações */}
-            <div>
+            <div className="col-span-2">
               <label className="text-xs font-medium text-slate-600 mb-1 block">Observações</label>
               <input value={notes} onChange={e => setNotes(e.target.value)}
                 placeholder="Ex: entrega parcial, produto danificado, etc."
@@ -296,9 +266,8 @@ function NewDeliveryModal({
           {(nfRef || invoiceSeries || programId) && (
             <div className="mt-3 flex flex-wrap gap-2">
               {nfRef && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-mono font-semibold">NF {nfRef}</span>}
-              {invoiceSeries && <span className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded-full">{invoiceSeries}</span>}
+              {invoiceSeries && invoiceSeries !== "__other__" && <span className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded-full">{invoiceSeries}</span>}
               {programId && <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-semibold">{programs.find(p => p.id === programId)?.name}</span>}
-              {nfEntryId && <span className="text-xs bg-slate-100 text-slate-500 px-2 py-1 rounded-full">NF vinculada ao sistema ✓</span>}
             </div>
           )}
         </div>
