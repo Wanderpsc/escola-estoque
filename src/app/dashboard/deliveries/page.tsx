@@ -228,16 +228,30 @@ function NewDeliveryModal({
               )}
             </div>
 
-            {/* Parcela / Série — auto-preenche da NF ou manual */}
+            {/* Parcela / Série — select com opções das NFs disponíveis */}
             <div>
               <label className="text-xs font-medium text-slate-600 mb-1 block">Parcela / Série</label>
               {nfEntryId ? (
                 <div className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700">
                   {invoiceSeries || <span className="text-slate-400">—</span>}
                 </div>
-              ) : (
-                <input value={invoiceSeries} onChange={e => setInvoiceSeries(e.target.value)} placeholder="Ex: 6ª Parcela, Série 001"
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              ) : (() => {
+                const seriesOptions = [...new Set(nfs.map(n => n.invoiceSeries).filter(Boolean))] as string[];
+                return seriesOptions.length > 0 ? (
+                  <select value={invoiceSeries} onChange={e => setInvoiceSeries(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="">— Selecione a parcela —</option>
+                    {seriesOptions.map(s => <option key={s} value={s}>{s}</option>)}
+                    <option value="__other__">Outra...</option>
+                  </select>
+                ) : (
+                  <input value={invoiceSeries} onChange={e => setInvoiceSeries(e.target.value)} placeholder="Ex: 6ª Parcela, Série 001"
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                );
+              })()}
+              {!nfEntryId && invoiceSeries === "__other__" && (
+                <input autoFocus value="" onChange={e => setInvoiceSeries(e.target.value)} placeholder="Digite a parcela/série"
+                  className="mt-1 w-full border border-blue-400 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
               )}
             </div>
 
