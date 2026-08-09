@@ -99,10 +99,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       include: deliveryInclude,
     });
 
-    // ── Auto-cria StockEntry se houver ao menos 1 item entregue ──
+    // ── Registra a entrega no estoque ──
+    // Se a entrega está vinculada a uma NF já existente (stockEntryId), o estoque
+    // já foi adicionado quando a NF foi registrada — apenas rastreia financeiramente.
+    // Se não há NF vinculada, cria uma StockEntry (DEL-xxx) para registrar a entrada.
     const deliveredItems = confirmedItems.filter((ci) => ci.quantityDelivered > 0);
     if (deliveredItems.length > 0) {
-      // Prefere programId da NF de referência; depois da ordem; depois do produto
       let programId = order.stockEntry?.programId ?? order.programId;
       if (!programId) {
         const firstItem = order.items[0];
@@ -133,45 +135,53 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         }, 0);
         const totalValue = totalNormal + totalExtra;
 
-        // Número da NF de referência, se houver
         const nfRef = order.stockEntry?.invoiceNumber
-          ? ` (NF Ref.: ${order.stockEntry.invoiceNumber})`
+          ? ` (NF ${order.stockEntry.invoiceNumber})`
           : "";
 
-        await db.stockEntry.create({
-          data: {
-            invoiceNumber: `DEL-${id.slice(-8).toUpperCase()}`,
-            invoiceDate: order.deliveryDate,
-            totalValue,
-            supplierId: order.supplierId,
-            programId,
-            userId,
-            observations: `Entrega confirmada${nfRef} — ${order.notes ?? ""}`.trim(),
-            items: {
-              create: deliveredItems.map((ci) => {
-                const orig = order.items.find((i) => i.id === ci.id)!;
-                return {
-                  productId: orig.productId,
-                  quantity: ci.quantityDelivered,
-                  unitPrice: orig.unitPrice,
-                  totalPrice: ci.quantityDelivered * orig.unitPrice,
-                  isExtra: !!orig.isExtra,
-                };
-              }),
+        // Só cria StockEntry (DEL-xxx) se a entrega NÃO está vinculada a uma NF já registrada
+        // (evita duplicar estoque: a NF original já adicionou os itens ao estoque)
+        if (!order.stockEntryId) {
+          await db.stockEntry.create({
+            data: {
+              invoiceNumber: `DEL-${id.slice(-8).toUpperCase()}`,
+              invoiceDate: order.deliveryDate,
+              totalValue,
+              supplierId: order.supplierId,
+              programId,
+              userId,
+              observations: `Entrega confirmada${nfRef} — ${order.notes ?? ""}`.trim(),
+              items: {
+                create: deliveredItems.map((ci) => {
+                  const orig = order.items.find((i) => i.id === ci.id)!;
+                  return {
+                    productId: orig.productId,
+                    quantity: ci.quantityDelivered,
+                    unitPrice: orig.unitPrice,
+                    totalPrice: ci.quantityDelivered * orig.unitPrice,
+                    isExtra: !!orig.isExtra,
+                  };
+                }),
+              },
             },
-          },
-        });
+          });
+        }
 
-        await db.budgetMovement.create({
-          data: {
-            programId,
-            type: "DEBIT",
-            amount: totalValue,
-            description: `Entrega confirmada${nfRef} — Fornecedor: ${updated.supplier.name}${totalExtra > 0 ? ` (inclui R$ ${totalExtra.toFixed(2)} extras com ressalva)` : ""}`,
-            reference: `DEL-${id.slice(-8).toUpperCase()}`,
-            date: order.deliveryDate,
-          },
-        });
+        // BudgetMovement só para itens extras (fora da NF) — não duplica a NF original
+        if (totalExtra > 0 || !order.stockEntryId) {
+          await db.budgetMovement.create({
+            data: {
+              programId,
+              type: "DEBIT",
+              amount: order.stockEntryId ? totalExtra : totalValue,
+              description: order.stockEntryId
+                ? `Entrega extras${nfRef} — Fornecedor: ${updated.supplier.name} (itens fora da NF)`
+                : `Entrega confirmada${nfRef} — Fornecedor: ${updated.supplier.name}${totalExtra > 0 ? ` (inclui R$ ${totalExtra.toFixed(2)} extras)` : ""}`,
+              reference: `DEL-${id.slice(-8).toUpperCase()}`,
+              date: order.deliveryDate,
+            },
+          });
+        }
       }
     }
 
