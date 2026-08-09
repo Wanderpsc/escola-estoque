@@ -207,14 +207,24 @@ function NewDeliveryModal({
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
 
-            {/* Programa e Parcela */}
+            {/* Programa e Parcela — apenas programas vinculados às NFs do fornecedor */}
             <div>
               <label className="text-xs font-medium text-slate-600 mb-1 block">Programa e Parcela / Série *</label>
               <select value={programId} onChange={e => setProgramId(e.target.value)}
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
                 <option value="">— Selecione —</option>
-                {programs.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                {(() => {
+                  // Mostra apenas programas que têm NFs cadastradas para este fornecedor
+                  const nfProgramIds = new Set(nfs.map(n => n.programId));
+                  const filtered = nfProgramIds.size > 0
+                    ? programs.filter(p => nfProgramIds.has(p.id))
+                    : programs;
+                  return filtered.map(p => <option key={p.id} value={p.id}>{p.name}</option>);
+                })()}
               </select>
+              {nfs.length === 0 && (
+                <p className="text-xs text-slate-400 mt-0.5">Nenhuma NF registrada pelo administrador para este fornecedor.</p>
+              )}
             </div>
 
             {/* Data e Hora */}
