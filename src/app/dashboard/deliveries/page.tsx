@@ -740,14 +740,15 @@ function EditDeliveryModal({
 }
 
 // --- Card de Entrega ---------------------------------------------------------
-function OrderCard({ order, canConfirm, onRefresh }: { order: DeliveryOrder; canConfirm: boolean; onRefresh: () => void }) {
+function OrderCard({ order, canConfirm, isSupplier, onRefresh }: { order: DeliveryOrder; canConfirm: boolean; isSupplier: boolean; onRefresh: () => void }) {
   const [expanded, setExpanded] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [pendingAction, setPendingAction] = useState<{ label: string; fn: () => void } | null>(null);
 
   const canEdit = canConfirm && order.status === "PENDING";
-  const canDelete = canConfirm;
+  // Fornecedor pode excluir apenas suas próprias ordens PENDING
+  const canDelete = canConfirm || (isSupplier && order.status === "PENDING");
 
   function requestCancel() {
     setPendingAction({
@@ -764,7 +765,7 @@ function OrderCard({ order, canConfirm, onRefresh }: { order: DeliveryOrder; can
     const isConfirmed = ["CONFIRMED", "PARTIAL"].includes(order.status);
     const label = isConfirmed
       ? `excluir e REVERTER a entrega confirmada de ${order.supplier.name} (estoque e financeiro serão desfeitos)`
-      : `excluir permanentemente a entrega de ${order.supplier.name}`;
+      : `excluir esta entrega pendente`;
     setPendingAction({
       label,
       fn: async () => {
@@ -1074,7 +1075,7 @@ export default function DeliveriesPage() {
       ) : (
         <div className="space-y-3">
           {filtered.map((order) => (
-            <OrderCard key={order.id} order={order} canConfirm={canConfirm} onRefresh={load} />
+            <OrderCard key={order.id} order={order} canConfirm={canConfirm} isSupplier={isSupplier} onRefresh={load} />
           ))}
         </div>
       )}

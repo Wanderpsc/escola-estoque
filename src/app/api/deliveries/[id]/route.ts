@@ -236,23 +236,27 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   return NextResponse.json(updated);
 }
 
-// DELETE /api/deliveries/[id] — exclui entrega de qualquer status; reverte estoque/financeiro se CONFIRMED/PARTIAL
+// DELETE /api/deliveries/[id] — exclui entrega; reverte estoque/financeiro se CONFIRMED/PARTIAL
+// Fornecedor pode excluir apenas suas próprias ordens PENDING
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
 
   const role = (session.user as any).role;
   const schoolId = (session.user as any).schoolId;
-
-  if (!["SUPER_ADMIN", "SCHOOL_ADMIN", "MANAGER"].includes(role)) {
-    return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
-  }
+  const supplierId = (session.user as any).supplierId;
 
   const { id } = await params;
   const order = await db.deliveryOrder.findUnique({ where: { id } });
   if (!order) return NextResponse.json({ error: "Entrega não encontrada" }, { status: 404 });
 
-  if (role !== "SUPER_ADMIN" && order.schoolId !== schoolId) {
+  if (role === "SUPPLIER") {
+    // Fornecedor só pode excluir suas próprias ordens PENDENTES
+    if (order.supplierId !== supplierId) return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+    if (order.status !== "PENDING") return NextResponse.json({ error: "Apenas entregas pendentes podem ser excluídas pelo fornecedor" }, { status: 400 });
+  } else if (!["SUPER_ADMIN", "SCHOOL_ADMIN", "MANAGER"].includes(role)) {
+    return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
+  } else if (role !== "SUPER_ADMIN" && order.schoolId !== schoolId) {
     return NextResponse.json({ error: "Sem permissão" }, { status: 403 });
   }
 
