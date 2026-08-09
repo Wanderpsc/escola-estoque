@@ -202,7 +202,6 @@ function NewDeliveryModal({
 
             {/* NF selecionável — se existir no sistema auto-preenche; se não, mostra campo manual */}
             <div className="col-span-2">
-              <label className="text-xs font-medium text-slate-600 mb-1 block">Número da Nota Fiscal *</label>
               {nfs.length > 0 ? (
                 <select value={nfEntryId || (nfRef ? "__manual__" : "")}
                   onChange={e => {
