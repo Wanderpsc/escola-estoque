@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
   }
 
   const users = await db.user.findMany({
-    where,
+    where: { ...where, active: true },
     select: { id: true, name: true, email: true, role: true, cpf: true, phone: true, active: true, createdAt: true, school: { select: { name: true } } },
     orderBy: { name: "asc" },
   });

@@ -57,5 +57,11 @@ export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id:
   }
 
   await db.user.update({ where: { id }, data: { active: false } });
+  // Tenta hard-delete; se houver registros vinculados, mantém como inativo
+  try {
+    await db.user.delete({ where: { id } });
+  } catch {
+    // Usuário tem histórico — mantém desativado (não aparece na listagem)
+  }
   return NextResponse.json({ ok: true });
 }
