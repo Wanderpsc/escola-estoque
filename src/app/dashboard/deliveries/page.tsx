@@ -207,40 +207,12 @@ function NewDeliveryModal({
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
 
-            {/* Parcela / Série — select fixo 1ª–11ª + manual */}
+            {/* Programa e Parcela */}
             <div>
-              <label className="text-xs font-medium text-slate-600 mb-1 block">Parcela / Série</label>
-              {(() => {
-                const fixed = ["1ª Parcela","2ª Parcela","3ª Parcela","4ª Parcela","5ª Parcela","6ª Parcela","7ª Parcela","8ª Parcela","9ª Parcela","10ª Parcela","11ª Parcela"];
-                const nfSeries = [...new Set(nfs.map(n => n.invoiceSeries).filter(Boolean))].filter(s => !fixed.includes(s as string)) as string[];
-                const isCustom = invoiceSeries && !fixed.includes(invoiceSeries) && !nfSeries.includes(invoiceSeries);
-                return (
-                  <>
-                    <select
-                      value={isCustom ? "__other__" : invoiceSeries}
-                      onChange={e => { if (e.target.value !== "__other__") setInvoiceSeries(e.target.value); else setInvoiceSeries(""); }}
-                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-                      <option value="">— Selecione a parcela —</option>
-                      {fixed.map(s => <option key={s} value={s}>{s}</option>)}
-                      {nfSeries.map(s => <option key={s} value={s}>{s}</option>)}
-                      <option value="__other__">✏ Outra (digitar)</option>
-                    </select>
-                    {isCustom && (
-                      <input value={invoiceSeries} onChange={e => setInvoiceSeries(e.target.value)}
-                        placeholder="Ex: 12ª Parcela..."
-                        className="mt-1.5 w-full border border-blue-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                    )}
-                  </>
-                );
-              })()}
-            </div>
-
-            {/* Programa */}
-            <div>
-              <label className="text-xs font-medium text-slate-600 mb-1 block">Programa *</label>
+              <label className="text-xs font-medium text-slate-600 mb-1 block">Programa e Parcela / Série *</label>
               <select value={programId} onChange={e => setProgramId(e.target.value)}
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="">— Selecione o programa —</option>
+                <option value="">— Selecione —</option>
                 {programs.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </div>
