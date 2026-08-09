@@ -24,6 +24,7 @@ interface NfEntry {
   registeredBy: string; status: string;
   items: NfItem[];
   receiptStatus: "NO_TRACKING" | "PENDING" | "PARTIAL" | "COMPLETE";
+  hasPendingSupplierDelivery: boolean;
   totalOrderedQty: number; totalDeliveredQty: number; totalPendingQty: number;
   totalOrderedValue: number; totalDeliveredValue: number; totalPendingValue: number;
   receiptHistory: ReceiptRecord[];
@@ -146,7 +147,7 @@ export default function ReceivingPage() {
         <span><strong>Na NF</strong> = quantidade comprada na nota fiscal</span>
         <span><strong>Recebido</strong> = mercadoria que chegou fisicamente à escola</span>
         <span><strong>A Receber</strong> = diferença ainda pendente de entrega pelo fornecedor</span>
-        <span className="text-blue-500">Registrar recebimentos não duplica o estoque — apenas confirma a entrega física.</span>
+        <span className="text-blue-500">Entregas já confirmadas na aba <em>Entregas</em> também aparecem aqui — o saldo é unificado e não é duplicado.</span>
       </div>
 
       {loading ? (
@@ -210,7 +211,13 @@ export default function ReceivingPage() {
                     )}
                   </div>
                 </div>
-
+                  {/* Alerta: NF com entrega pendente no fluxo Entregas (fornecedor) */}
+                  {entry.hasPendingSupplierDelivery && entry.receiptStatus !== "COMPLETE" && (
+                    <div className="mx-4 mb-2 mt-1 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800 flex items-center gap-2">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-500" />
+                      <span><strong>Atenção:</strong> esta NF tem uma entrega pendente registrada pelo fornecedor na aba <em>Entregas</em>. Confirme-a lá, ou registre aqui — não faça os dois para os mesmos produtos.</span>
+                    </div>
+                  )}
                 {/* Detalhes expandidos: tabela de itens */}
                 {isExpanded && (
                   <div className="border-t border-slate-100 overflow-x-auto">
@@ -324,7 +331,7 @@ export default function ReceivingPage() {
                         <input
                           type="number"
                           min={0}
-                          max={item.orderedQty}
+                          max={item.pendingQty}
                           step={0.01}
                           value={receiveQtys[item.productId] ?? ""}
                           onChange={(e) => setReceiveQtys((prev) => ({ ...prev, [item.productId]: e.target.value }))}

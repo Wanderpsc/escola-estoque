@@ -7,7 +7,7 @@ import { BarChart3, FileDown, Package, DollarSign, ArrowDownLeft, ArrowUpRight, 
 import { PageHeader, Button, Select, Badge } from "@/components/ui";
 import { formatCurrency, formatDate, PROGRAM_TYPES, EXIT_REASONS } from "@/lib/utils";
 
-type ReportType = "balance" | "entries" | "exits" | "financial" | "needs_purchase" | "annual_execution" | "accountability";
+type ReportType = "balance" | "entries" | "exits" | "financial" | "needs_purchase" | "annual_execution" | "accountability" | "internal_stock";
 
 export default function ReportsPage() {
   const { data: session } = useSession();
@@ -94,6 +94,7 @@ export default function ReportsPage() {
         needs_purchase:   q ? `/api/stock/balance?${q}` : "/api/stock/balance",
         annual_execution: `/api/reports/annual-execution?year=${reportYear}${reportProgramId ? `&programId=${reportProgramId}` : ""}`,
         accountability:   `/api/reports/accountability?${p.toString()}`,
+        internal_stock:   q ? `/api/stock/balance?${q}` : "/api/stock/balance",
       };
       const res = await fetch(endpoints[type]);
       if (!res.ok) { toast.error("Erro ao gerar relatório"); return; }
@@ -135,6 +136,7 @@ export default function ReportsPage() {
         needs_purchase: "Lista de Compras — Produtos Abaixo do Estoque Mínimo",
         annual_execution: `Execução Anual de Recursos — ${reportYear}`,
         accountability: "Prestação de Contas por Programa / Parcela",
+        internal_stock: "Relatório de Estoque Interno",
       };
 
       // Cabeçalho personalizado
@@ -267,6 +269,35 @@ export default function ReportsPage() {
         doc.setTextColor(124, 58, 237);
         doc.text(`Valor estimado para reposição: ${formatCurrency(totalEstimated)}`, 80, y2);
         doc.setTextColor(0, 0, 0);
+      } else if (type === "internal_stock") {
+        autoTable(doc, {
+          startY: 38,
+          head: [["Produto", "NCM", "Unidade", "Programa", "Na NF", "A Receber", "Consumido", "Saldo Atual", "Vl. Méd.", "Valor em Est.", "Status"]],
+          body: (data ?? []).map((r: any) => [
+            r.name, r.ncmCode, r.unit,
+            PROGRAM_TYPES[r.program?.type as keyof typeof PROGRAM_TYPES]?.label ?? r.program?.type ?? "",
+            r.totalIn.toFixed(2),
+            r.pendingReceipt != null ? r.pendingReceipt.toFixed(2) : "—",
+            r.totalOut.toFixed(2),
+            r.balance.toFixed(2),
+            formatCurrency(r.avgPrice),
+            formatCurrency(r.totalValue),
+            r.status === "ZERO" ? "ZERADO" : r.status === "LOW" ? "BAIXO" : "OK",
+          ]),
+          styles: { fontSize: 6.5 },
+          headStyles: { fillColor: [79, 70, 229] },
+          alternateRowStyles: { fillColor: [248, 250, 252] },
+          didParseCell: (data: any) => {
+            if (data.column.index === 10 && data.section === "body") {
+              if (data.cell.raw === "ZERADO") data.cell.styles.textColor = [220, 38, 38];
+              if (data.cell.raw === "BAIXO")  data.cell.styles.textColor = [161, 98, 7];
+            }
+          },
+        });
+        const totalVal = (data ?? []).reduce((s: number, r: any) => s + r.totalValue, 0);
+        const yIS = (doc as any).lastAutoTable.finalY + 8;
+        doc.setFont("helvetica", "bold");
+        doc.text(`Valor total em estoque: ${formatCurrency(totalVal)}`, 14, yIS);
       } else if (type !== "accountability" && type !== "annual_execution") {
         // EXIT-EXTRA-* são informacionais (já contabilizados em exitSpent no saldo financeiro)
         const mainData = (data ?? []).filter((r: any) => !r.reference?.startsWith("EXIT-"));
@@ -507,6 +538,7 @@ export default function ReportsPage() {
     { value: "needs_purchase", label: "Lista de Compras", icon: ShoppingCart, desc: "Produtos abaixo do estoque mínimo que precisam ser comprados" },
     { value: "annual_execution", label: "Execução Anual", icon: CalendarCheck, desc: "Recursos acumulados/executados por programa no ano (NFs finalizadas)" },
     { value: "accountability", label: "Prestação de Contas", icon: ClipboardList, desc: "Relatório completo: programa → parcelas → NFs → entregas → consumo → saldo" },
+    { value: "internal_stock", label: "Estoque Interno", icon: Package, desc: "Posição detalhada: NF → recebido → a receber → consumido → saldo atual" },
   ];
 
   return (
@@ -671,6 +703,52 @@ export default function ReportsPage() {
                 <div className="px-5 py-3 bg-blue-50 border-t-2 border-blue-100 flex justify-between items-center">
                   <span className="text-xs text-slate-500">{data.length} produto(s)</span>
                   <span className="text-sm font-bold text-blue-700">Valor total em estoque: {formatCurrency(data.reduce((s: number, r: any) => s + r.totalValue, 0))}</span>
+                </div>
+              </>
+            )}
+            {type === "internal_stock" && (
+              <>
+                <table className="w-full text-sm">
+                  <thead><tr className="bg-slate-50">
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Produto</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 border-b">Programa</th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 border-b">Un.</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 border-b">Na NF</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-orange-600 border-b">A Receber</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-red-600 border-b">Consumido</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-blue-700 border-b">Saldo Atual</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 border-b">Valor em Est.</th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 border-b">Status</th>
+                  </tr></thead>
+                  <tbody>{data.slice(0, 30).map((r: any) => (
+                    <tr key={r.id} className={`border-b hover:bg-slate-50 ${r.status === "ZERO" ? "bg-red-50/40" : r.status === "LOW" ? "bg-amber-50/30" : ""}`}>
+                      <td className="px-4 py-2.5 font-medium text-slate-700">{r.name}<div className="text-xs font-mono text-slate-400">{r.ncmCode}</div></td>
+                      <td className="px-4 py-2.5 text-xs text-slate-500">{PROGRAM_TYPES[r.program?.type as keyof typeof PROGRAM_TYPES]?.label ?? r.program?.name}</td>
+                      <td className="px-4 py-2.5 text-center text-xs font-mono text-slate-500">{r.unit}</td>
+                      <td className="px-4 py-2.5 text-right text-slate-600">{r.totalIn.toFixed(2)}</td>
+                      <td className={`px-4 py-2.5 text-right font-semibold ${r.pendingReceipt > 0 ? "text-orange-600" : "text-slate-300"}`}>
+                        {r.pendingReceipt != null ? r.pendingReceipt.toFixed(2) : "—"}
+                      </td>
+                      <td className="px-4 py-2.5 text-right text-red-600">{r.totalOut.toFixed(2)}</td>
+                      <td className={`px-4 py-2.5 text-right font-bold ${r.status === "ZERO" ? "text-red-600" : r.status === "LOW" ? "text-amber-600" : "text-blue-700"}`}>
+                        {r.balance.toFixed(2)}
+                      </td>
+                      <td className="px-4 py-2.5 text-right font-semibold">{formatCurrency(r.totalValue)}</td>
+                      <td className="px-4 py-2.5 text-center">
+                        <Badge color={r.status === "ZERO" ? "red" : r.status === "LOW" ? "yellow" : "green"}>{r.status === "ZERO" ? "Zerado" : r.status === "LOW" ? "Baixo" : "OK"}</Badge>
+                      </td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+                <div className="px-5 py-3 bg-indigo-50 border-t-2 border-indigo-100 flex flex-wrap gap-6 items-center justify-between">
+                  <div className="flex gap-4 text-xs">
+                    <span className="text-red-600 font-semibold">{data.filter((r: any) => r.status === "ZERO").length} zerado(s)</span>
+                    <span className="text-amber-600 font-semibold">{data.filter((r: any) => r.status === "LOW").length} abaixo do mínimo</span>
+                    {data.some((r: any) => r.pendingReceipt > 0) && (
+                      <span className="text-orange-600 font-semibold">{data.filter((r: any) => r.pendingReceipt > 0).length} com entrega pendente</span>
+                    )}
+                  </div>
+                  <span className="text-sm font-bold text-indigo-700">Valor total em estoque: {formatCurrency(data.reduce((s: number, r: any) => s + r.totalValue, 0))}</span>
                 </div>
               </>
             )}

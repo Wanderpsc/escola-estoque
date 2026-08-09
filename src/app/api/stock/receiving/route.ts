@@ -45,6 +45,8 @@ export async function GET(req: NextRequest) {
     const confirmedDeliveries = entry.deliveryOrders.filter((d) =>
       ["CONFIRMED", "PARTIAL"].includes(d.status)
     );
+    // NFs com entrega pendente no fluxo do fornecedor (Entregas): avisa a escola para não duplicar
+    const hasPendingSupplierDelivery = entry.deliveryOrders.some((d) => d.status === "PENDING");
 
     const itemsWithDelivery = entry.items.map((item) => {
       const deliveredQty = confirmedDeliveries
@@ -118,6 +120,7 @@ export async function GET(req: NextRequest) {
         (s, i) => s + i.pendingQty * i.unitPrice,
         0
       ),
+      hasPendingSupplierDelivery,
       receiptHistory,
     };
   });
@@ -159,29 +162,50 @@ export async function POST(req: NextRequest) {
 
   const resolvedSchoolId = schoolId ?? entry.supplier.schoolId;
 
-  // Monta itens para a DeliveryOrder
+  // Busca quanto já foi confirmado por produto para esta NF (via qualquer fluxo)
+  const existingConfirmed = await db.deliveryOrder.findMany({
+    where: { stockEntryId: entryId, status: { in: ["CONFIRMED", "PARTIAL"] } },
+    include: { items: true },
+  });
+  const alreadyByProduct: Record<string, number> = {};
+  for (const d of existingConfirmed) {
+    for (const di of d.items) {
+      alreadyByProduct[di.productId] = (alreadyByProduct[di.productId] ?? 0) + (di.quantityDelivered ?? 0);
+    }
+  }
+
+  // Monta itens para a DeliveryOrder — clampeia ao máximo ainda pendente por produto
   const orderItems = items
     .filter((i: any) => i.quantityReceived > 0)
     .map((i: any) => {
       const entryItem = entry.items.find((ei) => ei.productId === i.productId);
       const unitPrice = entryItem?.unitPrice ?? 0;
-      const qtyOrdered = entryItem?.quantity ?? i.quantityReceived;
+      const qtyOrdered = entryItem?.quantity ?? Number(i.quantityReceived);
+      const alreadyDelivered = alreadyByProduct[i.productId] ?? 0;
+      const maxReceivable = Math.max(qtyOrdered - alreadyDelivered, 0);
+      const effectiveQty = Math.min(Number(i.quantityReceived), maxReceivable);
+      if (effectiveQty <= 0) return null;
       return {
         productId: i.productId,
         quantityOrdered: qtyOrdered,
-        quantityDelivered: Number(i.quantityReceived),
+        quantityDelivered: effectiveQty,
         unitPrice,
-        totalPrice: Number(i.quantityReceived) * unitPrice,
+        totalPrice: effectiveQty * unitPrice,
       };
-    });
+    })
+    .filter(Boolean) as any[];
 
   if (orderItems.length === 0) {
-    return NextResponse.json({ error: "Nenhuma quantidade informada" }, { status: 400 });
+    return NextResponse.json({ error: "Nenhuma quantidade válida informada (verifique se não há duplicidade com entregas já confirmadas)" }, { status: 400 });
   }
 
-  const totalDelivered = orderItems.reduce((s: number, i: any) => s + i.quantityDelivered, 0);
-  const totalOrdered = orderItems.reduce((s: number, i: any) => s + i.quantityOrdered, 0);
-  const allDelivered = totalDelivered >= totalOrdered;
+  // allDelivered = todos os itens atingiram o total da NF após esta operação
+  const allDelivered = orderItems.every((oi) => {
+    const entryItem = entry.items.find((ei) => ei.productId === oi.productId);
+    const qtyOrdered = entryItem?.quantity ?? oi.quantityDelivered;
+    const alreadyDelivered = alreadyByProduct[oi.productId] ?? 0;
+    return alreadyDelivered + oi.quantityDelivered >= qtyOrdered;
+  });
 
   const deliveryOrder = await db.deliveryOrder.create({
     data: {
