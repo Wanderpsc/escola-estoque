@@ -11,6 +11,7 @@ interface Balance {
   id: string; name: string; unit: string; ncmCode: string; minStock: number;
   programId: string;
   balance: number; totalIn: number; totalOut: number; totalAdjusted: number;
+  totalDelivered: number | null; pendingReceipt: number | null; hasDeliveryTracking: boolean;
   avgPrice: number; totalValue: number;
   status: "OK" | "LOW" | "ZERO";
   program: { name: string; type: string };
@@ -348,8 +349,9 @@ export default function StockBalancePage() {
                 <Th>Produto</Th>
                 <Th>NCM</Th>
                 <Th>Programa</Th>
-                <Th>Entradas</Th>
-                <Th>Saidas</Th>
+                <Th>Na NF</Th>
+                <Th>A Receber</Th>
+                <Th>Saídas</Th>
                 <Th>Ant.</Th>
                 <Th>Saldo</Th>
                 <Th>Valor Medio</Th>
@@ -368,6 +370,15 @@ export default function StockBalancePage() {
                     </Badge>
                   </Td>
                   <Td className="text-green-700 font-medium">+{p.totalIn.toFixed(2)} {p.unit}</Td>
+                  <Td>
+                    {p.hasDeliveryTracking && p.pendingReceipt != null ? (
+                      <span className={`font-semibold text-sm ${p.pendingReceipt > 0 ? "text-orange-600" : "text-slate-400"}`}>
+                        {p.pendingReceipt > 0 ? `${p.pendingReceipt.toFixed(2)} ${p.unit}` : "–"}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-slate-300">–</span>
+                    )}
+                  </Td>
                   <Td className="text-red-600 font-medium">-{p.totalOut.toFixed(2)} {p.unit}</Td>
                   <Td>
                     <button

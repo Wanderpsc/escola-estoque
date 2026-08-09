@@ -12,6 +12,7 @@ import {
   Truck,
   Package,
   ShoppingCart,
+  PackageCheck,
   ArrowUpDown,
   BarChart3,
   DollarSign,
@@ -59,7 +60,8 @@ const schoolNavigation = [
     icon: ArrowUpDown,
     children: [
       { name: "Entradas (NF)", href: "/dashboard/stock/entries", icon: ShoppingCart },
-      { name: "Saídas", href: "/dashboard/stock/exits", icon: ArrowUpDown },
+      { name: "Recebimento de Mercadorias", href: "/dashboard/stock/receiving", icon: PackageCheck },
+      { name: "Saídas / Consumo", href: "/dashboard/stock/exits", icon: ArrowUpDown },
       { name: "Saldo Atual", href: "/dashboard/stock/balance", icon: Package },
     ],
   },
