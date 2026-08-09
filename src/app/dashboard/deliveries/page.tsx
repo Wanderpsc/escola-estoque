@@ -228,30 +228,34 @@ function NewDeliveryModal({
               )}
             </div>
 
-            {/* Parcela / Série — select com opções das NFs disponíveis */}
+            {/* Parcela / Série — select com parcelas fixas + opções das NFs + campo manual */}
             <div>
               <label className="text-xs font-medium text-slate-600 mb-1 block">Parcela / Série</label>
               {nfEntryId ? (
                 <div className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700">
                   {invoiceSeries || <span className="text-slate-400">—</span>}
                 </div>
-              ) : (() => {
-                const seriesOptions = [...new Set(nfs.map(n => n.invoiceSeries).filter(Boolean))] as string[];
-                return seriesOptions.length > 0 ? (
-                  <select value={invoiceSeries} onChange={e => setInvoiceSeries(e.target.value)}
+              ) : (
+                <>
+                  <select
+                    value={invoiceSeries.startsWith("__") || !["1ª Parcela","2ª Parcela","3ª Parcela","4ª Parcela","5ª Parcela","6ª Parcela","7ª Parcela",...new Set(nfs.map(n=>n.invoiceSeries).filter(Boolean))].includes(invoiceSeries) && invoiceSeries ? "__other__" : invoiceSeries}
+                    onChange={e => { if (e.target.value !== "__other__") setInvoiceSeries(e.target.value); else setInvoiceSeries(""); }}
                     className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
                     <option value="">— Selecione a parcela —</option>
-                    {seriesOptions.map(s => <option key={s} value={s}>{s}</option>)}
-                    <option value="__other__">Outra...</option>
+                    {["1ª Parcela","2ª Parcela","3ª Parcela","4ª Parcela","5ª Parcela","6ª Parcela","7ª Parcela"].map(s =>
+                      <option key={s} value={s}>{s}</option>
+                    )}
+                    {[...new Set(nfs.map(n => n.invoiceSeries).filter(Boolean))].filter(s => !["1ª Parcela","2ª Parcela","3ª Parcela","4ª Parcela","5ª Parcela","6ª Parcela","7ª Parcela"].includes(s as string)).map(s =>
+                      <option key={s as string} value={s as string}>{s}</option>
+                    )}
+                    <option value="__other__">✏ Outra (digitar manualmente)</option>
                   </select>
-                ) : (
-                  <input value={invoiceSeries} onChange={e => setInvoiceSeries(e.target.value)} placeholder="Ex: 6ª Parcela, Série 001"
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                );
-              })()}
-              {!nfEntryId && invoiceSeries === "__other__" && (
-                <input autoFocus value="" onChange={e => setInvoiceSeries(e.target.value)} placeholder="Digite a parcela/série"
-                  className="mt-1 w-full border border-blue-400 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  {(invoiceSeries === "" || (!["1ª Parcela","2ª Parcela","3ª Parcela","4ª Parcela","5ª Parcela","6ª Parcela","7ª Parcela"].includes(invoiceSeries) && ![...nfs.map(n=>n.invoiceSeries)].includes(invoiceSeries) && invoiceSeries && invoiceSeries !== "__other__")) && (
+                    <input value={invoiceSeries === "__other__" ? "" : invoiceSeries} onChange={e => setInvoiceSeries(e.target.value)}
+                      placeholder="Ex: 8ª Parcela, Série 002..."
+                      className="mt-1.5 w-full border border-blue-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  )}
+                </>
               )}
             </div>
 
