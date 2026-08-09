@@ -319,7 +319,8 @@ function NewDeliveryModal({
                       {formatCurrency((Number(item.qty)||0) * (Number(item.unitPrice)||0))}
                     </td>
                     <td className="px-2 py-2 text-center">
-                      <input type="checkbox" checked={item.isExtra} onChange={e => setItem(i, "isExtra", String(e.target.checked))}
+                      <input type="checkbox" checked={!!item.isExtra}
+                        onChange={e => setItems(prev => prev.map((it, idx) => idx === i ? { ...it, isExtra: e.target.checked, extraNote: e.target.checked ? it.extraNote : "" } : it))}
                         className="w-4 h-4 rounded border-slate-300 text-amber-500 focus:ring-amber-400" title="Produto fora da Nota Fiscal" />
                     </td>
                     <td className="px-2 py-2">

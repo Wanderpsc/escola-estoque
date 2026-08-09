@@ -1,5 +1,3 @@
-"use client";
-
 import Link from "next/link";
 import { Clock, CheckCircle, Truck, Plus, AlertTriangle, ChevronRight } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
