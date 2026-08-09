@@ -63,7 +63,14 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { supplierId, schoolId, programId, stockEntryId, deliveryDate, notes, items } = body;
+  const { supplierId, schoolId: bodySchoolId, programId, stockEntryId, deliveryDate, notes, items } = body;
+
+  // Resolve schoolId: pode vir do body ou ser inferido pelo supplier
+  let schoolId = bodySchoolId;
+  if (!schoolId && supplierId) {
+    const supplier = await db.supplier.findUnique({ where: { id: supplierId }, select: { schoolId: true } });
+    schoolId = supplier?.schoolId;
+  }
 
   if (!supplierId || !schoolId || !deliveryDate || !Array.isArray(items) || items.length === 0) {
     return NextResponse.json(

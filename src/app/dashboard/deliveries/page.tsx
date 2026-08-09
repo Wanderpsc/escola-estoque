@@ -62,10 +62,10 @@ function StatusIcon({ s }: { s: string }) {
   return <Clock className="w-4 h-4 text-yellow-500" />;
 }
 
-// --- Modal: Nova Entrega (Fornecedor — baseado em NF autorizada) -------------
+// --- Modal: Nova Entrega (Fornecedor) ----------------------------------------
 function NewDeliveryModal({
   supplierId,
-  schoolId,
+  schoolId: propSchoolId,
   onClose,
   onSaved,
 }: {
@@ -74,14 +74,293 @@ function NewDeliveryModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  interface NfEntry {
-    id: string; invoiceNumber: string; invoiceSeries: string | null;
-    invoiceDate: string; totalValue: number; programId: string;
-    program: { name: string; type: string };
-    supplier: { name: string };
-    items: { id: string; product: { id: string; name: string; unit: string }; quantity: number; unitPrice: number }[];
-  }
+  interface NfEntry { id: string; invoiceNumber: string; invoiceSeries: string | null; invoiceDate: string; totalValue: number; programId: string; program: { name: string; type: string }; items: { product: { id: string; name: string; unit: string }; quantity: number; unitPrice: number }[] }
   const [nfs, setNfs] = useState<NfEntry[]>([]);
+  const [programs, setPrograms] = useState<Array<{ id: string; name: string; type: string }>>([]);
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  // Cabeçalho da entrega
+  const [nfRef, setNfRef] = useState("");           // número da NF informado pelo fornecedor
+  const [nfEntryId, setNfEntryId] = useState("");   // NF existente no sistema (opcional)
+  const [programId, setProgramId] = useState("");
+  const [invoiceSeries, setInvoiceSeries] = useState(""); // parcela
+  const [deliveryDate, setDeliveryDate] = useState(new Date().toISOString().slice(0, 16));
+  const [notes, setNotes] = useState("");
+  const [schoolId, setSchoolId] = useState(propSchoolId);
+
+  // Itens da entrega
+  const [items, setItems] = useState<Array<{ productId: string; unit: string; qty: string; unitPrice: string; isExtra: boolean; extraNote: string }>>([
+    { productId: "", unit: "", qty: "", unitPrice: "", isExtra: false, extraNote: "" },
+  ]);
+
+  useEffect(() => {
+    Promise.all([
+      fetch("/api/stock/entries").then(r => r.ok ? r.json() : []),
+      fetch("/api/programs").then(r => r.ok ? r.json() : []),
+      fetch("/api/products").then(r => r.ok ? r.json() : []),
+    ]).then(([entries, progs, prods]) => {
+      setNfs(entries.filter((e: NfEntry) => !e.invoiceNumber.startsWith("DEL-")));
+      setPrograms(progs);
+      setAllProducts(prods);
+      // Pré-seleciona o primeiro programa disponível
+      if (progs.length === 1) setProgramId(progs[0].id);
+    });
+  }, []);
+
+  // Quando o usuário seleciona uma NF existente, pré-preenche campos
+  function handleNfEntrySelect(id: string) {
+    setNfEntryId(id);
+    const nf = nfs.find(n => n.id === id);
+    if (!nf) return;
+    setNfRef(nf.invoiceNumber);
+    setProgramId(nf.programId);
+    setInvoiceSeries(nf.invoiceSeries ?? "");
+    // Pré-carrega itens da NF
+    if (nf.items.length > 0) {
+      setItems(nf.items.map(i => ({
+        productId: i.product.id, unit: i.product.unit,
+        qty: String(i.quantity), unitPrice: String(i.unitPrice),
+        isExtra: false, extraNote: "",
+      })));
+    }
+  }
+
+  function setItem(idx: number, field: string, val: string) {
+    setItems(prev => prev.map((it, i) => {
+      if (i !== idx) return it;
+      if (field === "productId") {
+        const p = allProducts.find(p => p.id === val);
+        return { ...it, productId: val, unit: p?.unit ?? "" };
+      }
+      return { ...it, [field]: val };
+    }));
+  }
+
+  function addItem() { setItems(prev => [...prev, { productId: "", unit: "", qty: "", unitPrice: "", isExtra: false, extraNote: "" }]); }
+  function removeItem(idx: number) { setItems(prev => prev.filter((_, i) => i !== idx)); }
+
+  const total = items.reduce((s, i) => s + (Number(i.qty)||0) * (Number(i.unitPrice)||0), 0);
+
+  async function handleSave() {
+    if (!programId) { toast.error("Selecione o programa"); return; }
+    if (!deliveryDate) { toast.error("Informe a data/hora da entrega"); return; }
+    const validItems = items.filter(i => i.productId && Number(i.qty) > 0);
+    if (validItems.length === 0) { toast.error("Adicione ao menos 1 produto com quantidade maior que zero"); return; }
+    const missingNote = validItems.find(i => i.isExtra && !i.extraNote.trim());
+    if (missingNote) { toast.error("Itens fora da NF exigem justificativa obrigatória"); return; }
+
+    // Resolve schoolId: pode vir da sessão ou do supplier
+    let resolvedSchoolId = schoolId;
+    if (!resolvedSchoolId) {
+      const nf = nfs.find(n => n.id === nfEntryId);
+      if (nf) resolvedSchoolId = ""; // fallback — API vai resolver via supplierId
+    }
+
+    setSaving(true);
+    const res = await fetch("/api/deliveries", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        supplierId,
+        schoolId: resolvedSchoolId || undefined,
+        programId,
+        stockEntryId: nfEntryId || null,
+        deliveryDate,
+        notes: [
+          nfRef ? `NF: ${nfRef}` : "",
+          invoiceSeries ? `Parcela/Série: ${invoiceSeries}` : "",
+          notes,
+        ].filter(Boolean).join(" — ") || null,
+        items: validItems.map(i => ({
+          productId: i.productId,
+          quantityOrdered: Number(i.qty),
+          unitPrice: Number(i.unitPrice),
+          isExtra: i.isExtra,
+          extraNote: i.extraNote || null,
+        })),
+      }),
+    });
+    setSaving(false);
+    if (res.ok) {
+      toast.success("Entrega registrada! Aguardando confirmação do administrador.");
+      onSaved(); onClose();
+    } else {
+      const err = await res.json();
+      toast.error(err.error ?? "Erro ao registrar entrega.");
+    }
+  }
+
+  const selectedProgram = programs.find(p => p.id === programId);
+
+  return (
+    <Modal open title="Registrar Entrega de Mercadorias" onClose={onClose} size="xl">
+      <div className="space-y-5">
+
+        {/* ── Seção 1: Identificação ─────────────────── */}
+        <div className="bg-slate-50 rounded-xl border border-slate-200 p-4">
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-3">1. Identificação da Entrega</p>
+          <div className="grid grid-cols-2 gap-3">
+
+            {/* NF existente no sistema (opcional) */}
+            <div className="col-span-2">
+              <label className="text-xs text-slate-500 mb-1 block">Nota Fiscal autorizada (se existir no sistema)</label>
+              <select value={nfEntryId} onChange={e => handleNfEntrySelect(e.target.value)}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">— Selecione se esta NF já foi cadastrada pelo administrador —</option>
+                {nfs.map(n => {
+                  const parc = n.invoiceSeries ? ` · Parcela ${n.invoiceSeries}` : "";
+                  return <option key={n.id} value={n.id}>NF {n.invoiceNumber}{parc} — {n.program.name} — {new Date(n.invoiceDate).toLocaleDateString("pt-BR")} — {formatCurrency(n.totalValue)}</option>;
+                })}
+              </select>
+              {nfs.length === 0 && <p className="text-xs text-slate-400 mt-0.5">Nenhuma NF cadastrada pelo administrador para este fornecedor ainda.</p>}
+            </div>
+
+            {/* Número da NF (manual) */}
+            <div>
+              <label className="text-xs font-medium text-slate-600 mb-1 block">Número da Nota Fiscal *</label>
+              <input value={nfRef} onChange={e => setNfRef(e.target.value)} placeholder="Ex: 000123"
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+
+            {/* Parcela / Série */}
+            <div>
+              <label className="text-xs font-medium text-slate-600 mb-1 block">Parcela / Série</label>
+              <input value={invoiceSeries} onChange={e => setInvoiceSeries(e.target.value)} placeholder="Ex: 6ª Parcela, Série 001"
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+
+            {/* Programa */}
+            <div>
+              <label className="text-xs font-medium text-slate-600 mb-1 block">Programa *</label>
+              <select value={programId} onChange={e => setProgramId(e.target.value)}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">— Selecione o programa —</option>
+                {programs.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+
+            {/* Data e Hora */}
+            <div>
+              <label className="text-xs font-medium text-slate-600 mb-1 block">Data e Hora da Entrega *</label>
+              <input type="datetime-local" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <p className="text-xs text-slate-400 mt-0.5">Preenchida automaticamente — edite se necessário</p>
+            </div>
+
+            {/* Observações */}
+            <div className="col-span-2">
+              <label className="text-xs font-medium text-slate-600 mb-1 block">Observações</label>
+              <input value={notes} onChange={e => setNotes(e.target.value)}
+                placeholder="Ex: entrega parcial, produto danificado, etc."
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+          </div>
+
+          {/* Resumo da identificação */}
+          {(selectedProgram || nfRef) && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {nfRef && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-mono font-semibold">NF {nfRef}</span>}
+              {invoiceSeries && <span className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded-full">{invoiceSeries}</span>}
+              {selectedProgram && <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-semibold">{selectedProgram.name}</span>}
+            </div>
+          )}
+        </div>
+
+        {/* ── Seção 2: Mercadorias ───────────────────── */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">2. Mercadorias Entregues</p>
+            <button onClick={addItem} className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1">
+              <Plus className="w-3 h-3" /> Adicionar produto
+            </button>
+          </div>
+
+          <div className="border border-slate-200 rounded-xl overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200">
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-600">Item / Produto *</th>
+                  <th className="px-3 py-2.5 text-center text-xs font-semibold text-slate-500">Unidade</th>
+                  <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-600">Quantidade *</th>
+                  <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-600">Valor Unit. (R$) *</th>
+                  <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-600">Total</th>
+                  <th className="px-3 py-2.5 text-center text-xs font-semibold text-amber-600" title="Marque se este item NÃO consta na NF referenciada">Fora NF?</th>
+                  <th className="px-3 py-2.5"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((item, i) => (
+                  <tr key={i} className={`border-b border-slate-100 ${item.isExtra ? "bg-amber-50/40" : "bg-white"}`}>
+                    <td className="px-2 py-2">
+                      <select value={item.productId} onChange={e => setItem(i, "productId", e.target.value)}
+                        className="w-full border border-slate-300 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
+                        <option value="">— Selecionar produto —</option>
+                        {allProducts.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
+                      {item.isExtra && (
+                        <input placeholder="Justificativa obrigatória para item fora da NF"
+                          value={item.extraNote} onChange={e => setItem(i, "extraNote", e.target.value)}
+                          className="mt-1 w-full border border-amber-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-amber-400" />
+                      )}
+                    </td>
+                    <td className="px-2 py-2 text-center text-xs font-mono text-slate-500">{item.unit || "—"}</td>
+                    <td className="px-2 py-2">
+                      <input type="number" step="0.001" min="0" placeholder="0"
+                        value={item.qty} onChange={e => setItem(i, "qty", e.target.value)}
+                        className="w-24 border border-slate-300 rounded px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-1 focus:ring-blue-500 ml-auto block" />
+                    </td>
+                    <td className="px-2 py-2">
+                      <input type="number" step="0.01" min="0" placeholder="0,00"
+                        value={item.unitPrice} onChange={e => setItem(i, "unitPrice", e.target.value)}
+                        className="w-28 border border-slate-300 rounded px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-1 focus:ring-blue-500 ml-auto block" />
+                    </td>
+                    <td className="px-2 py-2 text-right font-semibold text-slate-700 whitespace-nowrap">
+                      {formatCurrency((Number(item.qty)||0) * (Number(item.unitPrice)||0))}
+                    </td>
+                    <td className="px-2 py-2 text-center">
+                      <input type="checkbox" checked={item.isExtra} onChange={e => setItem(i, "isExtra", String(e.target.checked))}
+                        className="w-4 h-4 rounded border-slate-300 text-amber-500 focus:ring-amber-400" title="Produto fora da Nota Fiscal" />
+                    </td>
+                    <td className="px-2 py-2">
+                      <button onClick={() => removeItem(i)} disabled={items.length === 1} className="text-slate-300 hover:text-red-500 disabled:opacity-0">
+                        <XCircle className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="bg-slate-50 border-t border-slate-200">
+                  <td colSpan={4} className="px-3 py-2.5 text-xs font-semibold text-slate-500 text-right">Total da entrega:</td>
+                  <td className="px-3 py-2.5 text-right font-bold text-slate-800">{formatCurrency(total)}</td>
+                  <td colSpan={2}></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          {items.some(i => i.isExtra) && (
+            <p className="text-xs text-amber-600 mt-1.5 flex items-center gap-1">
+              <AlertTriangle className="w-3.5 h-3.5" /> Itens marcados como "Fora NF" serão registrados com ressalva e analisados pelo administrador.
+            </p>
+          )}
+        </div>
+
+        {/* ── Rodapé: Total e Botões ─────────────────── */}
+        <div className="flex items-center justify-between pt-3 border-t border-slate-200">
+          <p className="text-xs text-slate-400">A entrega ficará pendente até o administrador da escola confirmar o recebimento.</p>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200">Cancelar</button>
+            <button onClick={handleSave} disabled={saving}
+              className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg disabled:opacity-50">
+              {saving ? "Registrando..." : "Registrar Entrega"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+}
   const [selectedNfId, setSelectedNfId] = useState("");
   const [saving, setSaving] = useState(false);
   const [deliveryDate, setDeliveryDate] = useState(new Date().toISOString().slice(0, 16));
@@ -194,238 +473,6 @@ function NewDeliveryModal({
       toast.error(err.error ?? "Erro ao registrar entrega.");
     }
   }
-
-  return (
-    <Modal open title="Registrar Entrega de Mercadorias" onClose={onClose} size="xl">
-      <div className="space-y-5">
-
-        {/* ── 1. Identificação da NF ─────────────────── */}
-        <div className="bg-slate-50 rounded-xl border border-slate-200 p-4 space-y-3">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">1. Nota Fiscal de Referência</p>
-          <div>
-            <label className="text-xs text-slate-600 font-medium mb-1 block">Nota Fiscal *</label>
-            <select value={selectedNfId} onChange={e => handleNfSelect(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
-              <option value="">— Selecione a NF autorizada —</option>
-              {nfs.map(n => {
-                const parcela = n.invoiceSeries ? ` · Parcela ${n.invoiceSeries}` : "";
-                return (
-                  <option key={n.id} value={n.id}>
-                    NF {n.invoiceNumber}{parcela} — {n.program.name} — {new Date(n.invoiceDate).toLocaleDateString("pt-BR")} — {formatCurrency(n.totalValue)}
-                  </option>
-                );
-              })}
-            </select>
-          </div>
-          {selectedNf && (
-            <div className="grid grid-cols-3 gap-3 text-xs">
-              <div className="bg-white border border-slate-200 rounded-lg px-3 py-2">
-                <p className="text-slate-400 mb-0.5">Nota Fiscal</p>
-                <p className="font-bold text-slate-800">NF {selectedNf.invoiceNumber}</p>
-              </div>
-              <div className="bg-white border border-slate-200 rounded-lg px-3 py-2">
-                <p className="text-slate-400 mb-0.5">Programa</p>
-                <p className="font-bold text-slate-800">{selectedNf.program.name}</p>
-              </div>
-              <div className="bg-white border border-slate-200 rounded-lg px-3 py-2">
-                <p className="text-slate-400 mb-0.5">Parcela / Série</p>
-                <p className="font-bold text-slate-800">{selectedNf.invoiceSeries ?? "—"}</p>
-              </div>
-              <div className="bg-white border border-slate-200 rounded-lg px-3 py-2">
-                <p className="text-slate-400 mb-0.5">Data da NF</p>
-                <p className="font-semibold text-slate-800">{new Date(selectedNf.invoiceDate).toLocaleDateString("pt-BR")}</p>
-              </div>
-              <div className="bg-white border border-blue-200 rounded-lg px-3 py-2">
-                <p className="text-slate-400 mb-0.5">Valor Contratado (NF)</p>
-                <p className="font-bold text-blue-700">{formatCurrency(selectedNf.totalValue)}</p>
-              </div>
-              <div className="bg-white border border-slate-200 rounded-lg px-3 py-2">
-                <p className="text-slate-400 mb-0.5">Fornecedor</p>
-                <p className="font-semibold text-slate-800 truncate">{selectedNf.supplier.name}</p>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* ── 2. Data e Observações ──────────────────── */}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-xs font-medium text-slate-600 mb-1 block">Data e Hora da Entrega *</label>
-            <input type="datetime-local" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            <p className="text-xs text-slate-400 mt-0.5">Preenchida automaticamente com data/hora atual</p>
-          </div>
-          <div>
-            <label className="text-xs font-medium text-slate-600 mb-1 block">Observações</label>
-            <textarea rows={2} value={notes} onChange={e => setNotes(e.target.value)}
-              placeholder="Ex: entrega parcial — aguardando 10 kg de arroz"
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          </div>
-        </div>
-
-        {/* ── 3. Mercadorias da NF ──────────────────── */}
-        {nfItems.length > 0 && (
-          <div>
-            <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">3. Mercadorias da NF — Informe a Quantidade Entregue</p>
-            <div className="border border-slate-200 rounded-xl overflow-hidden">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-blue-50 border-b border-blue-100">
-                    <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-600">Item / Produto</th>
-                    <th className="px-3 py-2.5 text-center text-xs font-semibold text-slate-600">Unidade</th>
-                    <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-600">Qtd. Contratada (NF)</th>
-                    <th className="px-3 py-2.5 text-right text-xs font-semibold text-blue-700">Qtd. a Entregar *</th>
-                    <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-600">Valor Unit. (R$)</th>
-                    <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-600">Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {nfItems.map((item, i) => {
-                    const qty = Number(item.deliveryQty) || 0;
-                    const diff = qty - item.nfQty;
-                    return (
-                      <tr key={i} className={`border-b border-slate-100 ${diff < 0 ? "bg-amber-50/40" : diff > 0 ? "bg-red-50/30" : "bg-white"}`}>
-                        <td className="px-3 py-2.5 font-medium text-slate-800">{item.name}</td>
-                        <td className="px-3 py-2.5 text-center text-slate-500 text-xs font-mono">{item.unit}</td>
-                        <td className="px-3 py-2.5 text-right text-slate-500">{item.nfQty.toFixed(3)}</td>
-                        <td className="px-3 py-2.5">
-                          <input type="number" step="0.001" min="0"
-                            value={item.deliveryQty}
-                            onChange={e => updateNfItem(i, e.target.value)}
-                            className={`w-full border rounded px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 ${diff < 0 ? "border-amber-300 focus:ring-amber-400" : diff > 0 ? "border-red-300 focus:ring-red-400" : "border-slate-300 focus:ring-blue-500"}`}
-                          />
-                          {diff < 0 && <p className="text-xs text-amber-600 mt-0.5 text-right">↓ {Math.abs(diff).toFixed(3)} a menos</p>}
-                          {diff > 0 && <p className="text-xs text-red-600 mt-0.5 text-right">↑ {diff.toFixed(3)} a mais</p>}
-                        </td>
-                        <td className="px-3 py-2.5 text-right text-slate-500">{formatCurrency(item.nfUnitPrice)}</td>
-                        <td className="px-3 py-2.5 text-right font-semibold text-slate-800">{formatCurrency(qty * item.nfUnitPrice)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr className="bg-blue-50 border-t border-blue-200">
-                    <td colSpan={5} className="px-3 py-2 text-xs font-semibold text-blue-700 text-right">Subtotal NF:</td>
-                    <td className="px-3 py-2 text-right font-bold text-blue-700">{formatCurrency(totalNf)}</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* ── 4. Mercadorias Fora da NF (Extra) ─────── */}
-        {selectedNfId && (
-          <div>
-            <button type="button"
-              onClick={() => { setShowExtra(v => !v); if (!showExtra && extraItems.length === 0) addExtraItem(); }}
-              className={`w-full flex items-center justify-between px-4 py-2.5 rounded-xl border-2 text-sm font-medium transition-colors ${showExtra ? "border-amber-400 bg-amber-50 text-amber-700" : "border-dashed border-slate-300 text-slate-500 hover:border-amber-300 hover:text-amber-600"}`}>
-              <span className="flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> Incluir Produtos Fora da NF (com Ressalva)</span>
-              <span className="text-xs font-normal opacity-80">valor será abatido do orçamento desta NF/programa</span>
-            </button>
-
-            {showExtra && (
-              <div className="mt-2 border border-amber-200 rounded-xl overflow-hidden">
-                <div className="bg-amber-50 px-4 py-2 border-b border-amber-200">
-                  <p className="text-xs text-amber-800 font-medium">Estes itens não constam na NF. Justificativa é obrigatória e ficará registrada para análise do administrador.</p>
-                </div>
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-amber-50/60 border-b border-amber-100">
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-slate-600">Item / Produto</th>
-                      <th className="px-3 py-2 text-center text-xs font-semibold text-slate-600">Unidade</th>
-                      <th className="px-3 py-2 text-right text-xs font-semibold text-slate-600">Qtd. *</th>
-                      <th className="px-3 py-2 text-right text-xs font-semibold text-slate-600">Vl. Unit. *</th>
-                      <th className="px-3 py-2 text-right text-xs font-semibold text-slate-600">Total</th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-amber-700">Justificativa *</th>
-                      <th className="px-3 py-2"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {extraItems.map((item, i) => (
-                      <tr key={i} className="border-b border-amber-100 bg-white">
-                        <td className="px-2 py-2">
-                          <select value={item.productId} onChange={e => updateExtraItem(i, "productId", e.target.value)}
-                            className="w-full border border-slate-300 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-amber-400">
-                            <option value="">— Selecionar produto —</option>
-                            {allProducts.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                          </select>
-                        </td>
-                        <td className="px-2 py-2 text-center text-xs font-mono text-slate-500 whitespace-nowrap">{item.unit || "—"}</td>
-                        <td className="px-2 py-2">
-                          <input type="number" step="0.001" min="0" placeholder="0"
-                            value={item.deliveryQty} onChange={e => updateExtraItem(i, "deliveryQty", e.target.value)}
-                            className="w-20 border border-slate-300 rounded px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-1 focus:ring-amber-400" />
-                        </td>
-                        <td className="px-2 py-2">
-                          <input type="number" step="0.01" min="0" placeholder="0,00"
-                            value={item.unitPrice} onChange={e => updateExtraItem(i, "unitPrice", e.target.value)}
-                            className="w-24 border border-slate-300 rounded px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-1 focus:ring-amber-400" />
-                        </td>
-                        <td className="px-2 py-2 text-right font-semibold text-amber-700 text-sm whitespace-nowrap">
-                          {formatCurrency((Number(item.deliveryQty)||0) * (Number(item.unitPrice)||0))}
-                        </td>
-                        <td className="px-2 py-2">
-                          <input placeholder="Ex: substituição por falta do item da NF"
-                            value={item.extraNote} onChange={e => updateExtraItem(i, "extraNote", e.target.value)}
-                            className="w-full border border-amber-300 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-amber-500" />
-                        </td>
-                        <td className="px-2 py-2">
-                          <button onClick={() => removeExtraItem(i)} className="text-slate-300 hover:text-red-500">
-                            <XCircle className="w-4 h-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className="bg-amber-50 border-t border-amber-200">
-                      <td colSpan={4} className="px-3 py-2">
-                        <button onClick={addExtraItem} className="text-xs text-amber-700 hover:text-amber-900 font-medium flex items-center gap-1">
-                          <Plus className="w-3 h-3" /> Adicionar item extra
-                        </button>
-                      </td>
-                      <td className="px-3 py-2 text-right font-bold text-amber-700">{formatCurrency(totalExtra)}</td>
-                      <td colSpan={2}></td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── 5. Resumo e Envio ─────────────────────── */}
-        <div className={`flex items-center justify-between pt-3 border-t border-slate-200 ${!selectedNfId ? "opacity-50 pointer-events-none" : ""}`}>
-          <div className="space-y-1">
-            {totalNf > 0 && (
-              <p className="text-sm text-slate-600">
-                Itens da NF: <strong className="text-blue-700">{formatCurrency(totalNf)}</strong>
-              </p>
-            )}
-            {totalExtra > 0 && (
-              <p className="text-sm text-amber-700">
-                Itens fora da NF (ressalva): <strong>{formatCurrency(totalExtra)}</strong>
-              </p>
-            )}
-            <p className="text-base font-bold text-slate-800">
-              Total da entrega: {formatCurrency(totalNf + totalExtra)}
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={onClose} className="px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200">
-              Cancelar
-            </button>
-            <button onClick={handleSave} disabled={saving || !selectedNfId}
-              className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">
-              {saving ? "Registrando..." : "Registrar Entrega"}
-            </button>
-          </div>
-        </div>
-      </div>
-    </Modal>
-  );
-}
 
 // --- Modal: Confirmar Entrega (Diretor) -------------------------------------
 function ConfirmModal({

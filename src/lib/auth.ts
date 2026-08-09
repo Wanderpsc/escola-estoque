@@ -26,7 +26,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         try {
           const user = await db.user.findUnique({
             where: { email },
-            include: { school: true },
+            include: { school: true, supplierLink: { select: { schoolId: true, name: true } } },
           });
 
           if (!user || !user.active) return null;
@@ -34,13 +34,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           const passwordMatch = await bcrypt.compare(password, user.password);
           if (!passwordMatch) return null;
 
+          // Para SUPPLIER, herda schoolId da empresa fornecedora
+          const effectiveSchoolId = user.schoolId ?? user.supplierLink?.schoolId ?? null;
+
           return {
             id: user.id,
             name: user.name,
             email: user.email,
             role: user.role,
-            schoolId: user.schoolId,
-            schoolName: user.school?.name ?? null,
+            schoolId: effectiveSchoolId,
+            schoolName: user.school?.name ?? user.supplierLink?.name ?? null,
             supplierId: user.supplierId ?? null,
           };
         } catch (err) {

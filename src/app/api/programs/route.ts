@@ -17,10 +17,16 @@ export async function GET(req: NextRequest) {
 
   const schoolId = (session.user as any).schoolId;
   const role = (session.user as any).role;
+  const supplierId = (session.user as any).supplierId;
   const url = new URL(req.url);
   const type = url.searchParams.get("type");
 
-  const where: any = role === "SUPER_ADMIN" ? {} : { schoolId: schoolId ?? "" };
+  let where: any = role === "SUPER_ADMIN" ? {} : { schoolId: schoolId ?? "" };
+  // Fornecedor: busca programas pelo schoolId da sua empresa
+  if (role === "SUPPLIER" && supplierId && !schoolId) {
+    const supplier = await db.supplier.findUnique({ where: { id: supplierId }, select: { schoolId: true } });
+    where = { schoolId: supplier?.schoolId ?? "" };
+  }
   if (type) where.type = type;
 
   const programs = await db.program.findMany({
