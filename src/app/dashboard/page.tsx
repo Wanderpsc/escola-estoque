@@ -4,18 +4,44 @@ import DashboardCards from "./_components/DashboardCards";
 import DashboardCharts from "./_components/DashboardCharts";
 import StockAlerts from "./_components/StockAlerts";
 import AdminDashboard from "./_components/AdminDashboard";
+import SupplierDashboard from "./_components/SupplierDashboard";
 
 export default async function DashboardPage() {
   const session = await auth();
   const userRole = (session?.user as any)?.role;
   const schoolId = (session?.user as any)?.schoolId;
+  const supplierId = (session?.user as any)?.supplierId;
 
   // SUPER_ADMIN vê painel de gestão do sistema
   if (userRole === "SUPER_ADMIN") {
     return <AdminDashboard adminName={session?.user?.name ?? "Administrador"} />;
   }
 
-  // Demais perfis veem painel de estoque da escola
+  // SUPPLIER vê apenas suas próprias entregas
+  if (userRole === "SUPPLIER") {
+    const [pending, confirmed, recent] = await Promise.all([
+      db.deliveryOrder.count({ where: { supplierId: supplierId ?? "", status: "PENDING" } }),
+      db.deliveryOrder.count({ where: { supplierId: supplierId ?? "", status: { in: ["CONFIRMED", "PARTIAL"] } } }),
+      db.deliveryOrder.findMany({
+        where: { supplierId: supplierId ?? "" },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        include: {
+          program: { select: { name: true } },
+          stockEntry: { select: { invoiceNumber: true, invoiceSeries: true } },
+          items: { include: { product: { select: { name: true, unit: true } } } },
+        },
+      }),
+    ]);
+    return (
+      <SupplierDashboard
+        supplierName={session?.user?.name ?? "Fornecedor"}
+        pendingCount={pending}
+        confirmedCount={confirmed}
+        recentOrders={recent as any}
+      />
+    );
+  }
   const schoolFilter = { schoolId: schoolId ?? "" };
 
   const [programs, entries, exits, products, suppliers] = await Promise.all([
