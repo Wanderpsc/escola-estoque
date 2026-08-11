@@ -109,14 +109,14 @@ export default function ReceivingPage() {
     } finally { setSaving(false); }
   }
 
-  const nfResults = nfSearch.length >= 2
-    ? entries.filter((e) => {
+  const nfResults = nfSearch.length === 0
+    ? entries.slice(0, 10)
+    : entries.filter((e) => {
         const s = nfSearch.toLowerCase();
         return e.invoiceNumber.toLowerCase().includes(s) ||
                e.supplierName.toLowerCase().includes(s) ||
                e.programName.toLowerCase().includes(s);
-      }).slice(0, 10)
-    : [];
+      }).slice(0, 10);
 
   const trackedNFs = entries.filter((e) => e.receiptStatus !== "NO_TRACKING");
   const filteredTracked = trackedNFs.filter((e) => !filterStatus || e.receiptStatus === filterStatus);
@@ -142,6 +142,7 @@ export default function ReceivingPage() {
               value={nfSearch}
               onChange={(e) => { setNfSearch(e.target.value); setShowResults(true); if (activeNF) setActiveNF(null); }}
               onFocus={() => setShowResults(true)}
+              onBlur={() => setTimeout(() => setShowResults(false), 150)}
               placeholder="Buscar NF por número, fornecedor ou parcela..."
               className="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 pr-10"
             />
@@ -151,7 +152,7 @@ export default function ReceivingPage() {
                 <X className="w-4 h-4" />
               </button>
             )}
-            {showResults && !activeNF && nfSearch.length >= 2 && (
+            {showResults && !activeNF && (
               <div className="absolute top-full left-0 right-0 z-20 bg-white border border-slate-200 rounded-xl shadow-xl mt-1 overflow-hidden">
                 {nfResults.length > 0 ? (
                   <div className="max-h-64 overflow-y-auto divide-y divide-slate-100">
@@ -180,9 +181,9 @@ export default function ReceivingPage() {
             )}
           </div>
 
-          {!activeNF && !nfSearch && !loading && (
+          {!activeNF && !nfSearch && !showResults && !loading && (
             <p className="text-center text-xs text-slate-400 mt-4">
-              {entries.length} nota(s) fiscal(is) disponível(is) — comece digitando para buscar
+              {entries.length} nota(s) fiscal(is) disponível(is) — clique no campo para selecionar
             </p>
           )}
           {loading && !activeNF && (
