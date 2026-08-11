@@ -40,6 +40,7 @@ export default function StockEntriesPage() {
   // Edit state
   const [editEntry, setEditEntry] = useState<Entry | null>(null);
   const [editItems, setEditItems] = useState<Array<{ id: string; quantity: string; unitPrice: string }>>([]);
+  const [editNewItems, setEditNewItems] = useState<ItemRow[]>([]);
   const [editMeta, setEditMeta] = useState({ invoiceNumber: "", invoiceDate: "", observations: "" });
 
   // Password confirm state
@@ -94,6 +95,7 @@ export default function StockEntriesPage() {
     setEditEntry(entry);
     setEditMeta({ invoiceNumber: entry.invoiceNumber, invoiceDate: entry.invoiceDate.split("T")[0], observations: entry.observations ?? "" });
     setEditItems(entry.items.map((i) => ({ id: i.id, quantity: String(i.quantity), unitPrice: String(i.unitPrice) })));
+    setEditNewItems([]);
   }
 
   async function handleBarcodeDetected(barcode: string, rowIndex: number, isExtraRow: boolean) {
@@ -144,11 +146,16 @@ export default function StockEntriesPage() {
 
   async function handleEditSave() {
     if (!editEntry) return;
+    const validNew = editNewItems.filter((r) => r.productId && Number(r.quantity) > 0);
     setSaving(true);
     try {
       const res = await fetch(`/api/stock/entries/${editEntry.id}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ invoiceNumber: editMeta.invoiceNumber, invoiceDate: editMeta.invoiceDate, observations: editMeta.observations, items: editItems.map((i) => ({ id: i.id, quantity: Number(i.quantity), unitPrice: Number(i.unitPrice) })) }),
+        body: JSON.stringify({
+          invoiceNumber: editMeta.invoiceNumber, invoiceDate: editMeta.invoiceDate, observations: editMeta.observations,
+          items: editItems.map((i) => ({ id: i.id, quantity: Number(i.quantity), unitPrice: Number(i.unitPrice) })),
+          newItems: validNew.map((r) => ({ productId: r.productId, quantity: Number(r.quantity), unitPrice: Number(r.unitPrice), lot: r.lot || undefined })),
+        }),
       });
       if (!res.ok) { const d = await res.json(); toast.error(d.error ?? "Erro ao editar"); return; }
       toast.success("Entrada atualizada!"); setEditEntry(null); load();
@@ -474,20 +481,28 @@ export default function StockEntriesPage() {
       </Modal>
 
       {/* Modal editar entrada */}
-      <Modal open={!!editEntry} onClose={() => setEditEntry(null)} title={`Editar NF ${editEntry?.invoiceNumber}`} size="lg">
-        {editEntry && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <Input label="Numero da NF *" value={editMeta.invoiceNumber} onChange={(e) => setEditMeta({ ...editMeta, invoiceNumber: e.target.value })} />
-              <Input label="Data de Entrada *" type="date" value={editMeta.invoiceDate} onChange={(e) => setEditMeta({ ...editMeta, invoiceDate: e.target.value })} />
-            </div>
-            <Input label="Observacoes" value={editMeta.observations} onChange={(e) => setEditMeta({ ...editMeta, observations: e.target.value })} />
-            <div>
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Itens</p>
-              <div className="grid grid-cols-[2fr_1fr_1fr_1fr] gap-2 text-xs text-slate-400 font-semibold uppercase px-1 mb-1">
-                <span>Produto</span><span>Qtd *</span><span>Vl. Unit. *</span><span>Total</span>
+      <Modal open={!!editEntry} onClose={() => setEditEntry(null)} title={`Editar NF ${editEntry?.invoiceNumber}`} size="xl">
+        {editEntry && (() => {
+          const editProgram = programs.find((p) => p.id === editEntry.programId);
+          const editSameTypeIds = editProgram ? new Set(programs.filter((p) => p.type === editProgram.type).map((p) => p.id)) : null;
+          const editFilteredProducts = products.filter((p) => !editProgram || !p.programId || (editSameTypeIds ? editSameTypeIds.has(p.programId) : p.programId === editEntry.programId));
+          return (
+            <div className="flex flex-col gap-0" style={{ maxHeight: "75vh" }}>
+              {/* Cabeçalho — fixo */}
+              <div className="space-y-4 pb-4 flex-shrink-0">
+                <div className="grid grid-cols-2 gap-4">
+                  <Input label="Numero da NF *" value={editMeta.invoiceNumber} onChange={(e) => setEditMeta({ ...editMeta, invoiceNumber: e.target.value })} />
+                  <Input label="Data de Entrada *" type="date" value={editMeta.invoiceDate} onChange={(e) => setEditMeta({ ...editMeta, invoiceDate: e.target.value })} />
+                </div>
+                <Input label="Observacoes" value={editMeta.observations} onChange={(e) => setEditMeta({ ...editMeta, observations: e.target.value })} />
+                <div className="grid grid-cols-[2fr_1fr_1fr_1fr] gap-2 text-xs text-slate-400 font-semibold uppercase px-1">
+                  <span>Produto</span><span>Qtd *</span><span>Vl. Unit. *</span><span>Total</span>
+                </div>
               </div>
-              <div className="space-y-2">
+
+              {/* Lista de itens — rolável */}
+              <div className="overflow-y-auto flex-1 space-y-2 pr-1">
+                {/* Itens existentes */}
                 {editItems.map((row, i) => {
                   const orig = editEntry.items[i];
                   const total = Number(row.quantity || 0) * Number(row.unitPrice || 0);
@@ -500,14 +515,42 @@ export default function StockEntriesPage() {
                     </div>
                   );
                 })}
+
+                {/* Novos itens adicionados na edição */}
+                {editNewItems.map((row, i) => {
+                  const rowTotal = Number(row.quantity || 0) * Number(row.unitPrice || 0);
+                  return (
+                    <div key={`new-${i}`} className="grid grid-cols-[2fr_1fr_1fr_1fr_auto] gap-2 items-center bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+                      <select value={row.productId} onChange={(e) => setEditNewItems((prev) => prev.map((r, idx) => idx === i ? { ...r, productId: e.target.value } : r))} className="border border-blue-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="">Selecionar produto...</option>
+                        {editFilteredProducts.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.unit})</option>)}
+                      </select>
+                      <input type="number" step="0.001" min="0" value={row.quantity} onChange={(e) => setEditNewItems((prev) => prev.map((r, idx) => idx === i ? { ...r, quantity: e.target.value } : r))} className="border border-blue-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 w-full" />
+                      <input type="number" step="0.01" min="0" value={row.unitPrice} onChange={(e) => setEditNewItems((prev) => prev.map((r, idx) => idx === i ? { ...r, unitPrice: e.target.value } : r))} className="border border-blue-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 w-full" />
+                      <span className="text-sm font-semibold text-blue-700">{formatCurrency(rowTotal)}</span>
+                      <button onClick={() => setEditNewItems((prev) => prev.filter((_, idx) => idx !== i))} className="text-slate-300 hover:text-red-500 p-1"><X className="w-4 h-4" /></button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Barra fixa — + Adicionar produto + ações */}
+              <div className="flex-shrink-0 border-t border-slate-100 pt-3 mt-3 space-y-3">
+                <button
+                  type="button"
+                  onClick={() => setEditNewItems((prev) => [...prev, { ...EMPTY_ITEM }])}
+                  className="flex items-center gap-2 text-xs text-blue-600 hover:text-blue-800 font-medium border border-dashed border-blue-300 rounded-lg px-3 py-2 w-full justify-center hover:bg-blue-50 transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Adicionar produto
+                </button>
+                <div className="flex justify-end gap-3">
+                  <Button variant="secondary" onClick={() => setEditEntry(null)}>Cancelar</Button>
+                  <Button onClick={handleEditSave} loading={saving}>Salvar Alteracoes</Button>
+                </div>
               </div>
             </div>
-            <div className="flex justify-end gap-3 pt-2 border-t border-slate-100">
-              <Button variant="secondary" onClick={() => setEditEntry(null)}>Cancelar</Button>
-              <Button onClick={handleEditSave} loading={saving}>Salvar Alteracoes</Button>
-            </div>
-          </div>
-        )}
+          );
+        })()}
       </Modal>
 
       {scanningRowIndex !== null && (

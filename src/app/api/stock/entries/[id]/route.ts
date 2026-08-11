@@ -25,7 +25,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
 
   const body = await req.json();
-  const { invoiceNumber, invoiceDate, supplierId, observations, items, action } = body;
+  const { invoiceNumber, invoiceDate, supplierId, observations, items, newItems, action } = body;
 
   // ── Ação: Finalizar NF ────────────────────────────────────────────────────
   if (action === "FINALIZE") {
@@ -59,7 +59,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json(reopened);
   }
 
-  // Atualiza itens se fornecidos
+  // Atualiza itens existentes se fornecidos
   if (Array.isArray(items)) {
     await Promise.all(
       items.map((item: { id: string; quantity: number; unitPrice: number }) =>
@@ -73,6 +73,21 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         })
       )
     );
+  }
+
+  // Adiciona novos itens à NF existente
+  if (Array.isArray(newItems) && newItems.length > 0) {
+    await db.entryItem.createMany({
+      data: newItems.map((item: { productId: string; quantity: number; unitPrice: number; lot?: string }) => ({
+        entryId: id,
+        productId: item.productId,
+        quantity: Number(item.quantity),
+        unitPrice: Number(item.unitPrice),
+        totalPrice: Number(item.quantity) * Number(item.unitPrice),
+        lot: item.lot ?? null,
+        isExtra: false,
+      })),
+    });
   }
 
   // Recalcula totalValue
