@@ -33,7 +33,7 @@ export default function StockExitsPage() {
   const [editItems, setEditItems] = useState<Array<{ id: string; quantity: string; unitPrice: string }>>([]);
   const [pendingAction, setPendingAction] = useState<{ label: string; fn: () => void } | null>(null);
   const [programs, setPrograms] = useState<Array<{ id: string; name: string; type: string }>>([]); 
-  const [entries, setEntries] = useState<Array<{ id: string; invoiceNumber: string; invoiceSeries?: string; invoiceDate: string; totalValue: number; programId: string; supplier: { name: string }; program: { name: string; type: string } }>>([]); 
+  const [entries, setEntries] = useState<Array<{ id: string; invoiceNumber: string; invoiceSeries?: string; invoiceDate: string; totalValue: number; programId: string; supplier: { name: string }; program: { name: string; type: string }; items: { productId: string; quantity: number; unitPrice: number }[] }>>([]); 
   const [balance, setBalance] = useState<Array<{ id: string; name: string; unit: string; balance: number; avgPrice: number; programId?: string; program: { type: string } }>>([]); 
   const [form, setForm] = useState(EMPTY_FORM);
   const [exitRows, setExitRows] = useState<Record<string, { qty: string; price: string }>>({});
@@ -57,21 +57,53 @@ export default function StockExitsPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Populate exit rows when program changes
+  // Populate exit rows when program changes — uses NF items of the parcel when available
   useEffect(() => {
     if (!form.programId) { setExitRows({}); return; }
-    const prog = programs.find((p) => p.id === form.programId);
-    if (!prog) { setExitRows({}); return; }
-    const rows: Record<string, { qty: string; price: string }> = {};
-    balance
-      .filter((p) => !p.programId || p.program?.type === prog.type)
-      .forEach((p) => { rows[p.id] = { qty: "", price: (p.avgPrice ?? 0).toFixed(2) }; });
-    setExitRows(rows);
-  }, [form.programId, balance, programs]);
+    const parcelaEntryItems = entries
+      .filter((e) => e.programId === form.programId)
+      .flatMap((e) => e.items ?? []);
+    if (parcelaEntryItems.length > 0) {
+      const priceMap = new Map<string, { total: number; qty: number }>();
+      parcelaEntryItems.forEach((i) => {
+        const ex = priceMap.get(i.productId);
+        if (ex) { ex.total += i.unitPrice * i.quantity; ex.qty += i.quantity; }
+        else priceMap.set(i.productId, { total: i.unitPrice * i.quantity, qty: i.quantity });
+      });
+      const rows: Record<string, { qty: string; price: string }> = {};
+      priceMap.forEach(({ total, qty }, productId) => {
+        rows[productId] = { qty: "", price: (total / qty).toFixed(2) };
+      });
+      setExitRows(rows);
+    } else {
+      const prog = programs.find((p) => p.id === form.programId);
+      if (!prog) { setExitRows({}); return; }
+      const rows: Record<string, { qty: string; price: string }> = {};
+      balance
+        .filter((p) => !p.programId || p.program?.type === prog.type)
+        .forEach((p) => { rows[p.id] = { qty: "", price: (p.avgPrice ?? 0).toFixed(2) }; });
+      setExitRows(rows);
+    }
+  }, [form.programId, balance, programs, entries]);
 
   const selectedProgramType = programs.find((p) => p.id === form.programId)?.type;
+
+  // Aggregate NF items of selected parcel for filtering and reference column
+  const parcelaItems = entries
+    .filter((e) => e.programId === form.programId)
+    .flatMap((e) => e.items ?? []);
+  const parcelaProductIds = new Set(parcelaItems.map((i) => i.productId));
+  const parcelaItemsMap = new Map<string, { totalQty: number }>();
+  parcelaItems.forEach((i) => {
+    const ex = parcelaItemsMap.get(i.productId);
+    if (ex) ex.totalQty += i.quantity;
+    else parcelaItemsMap.set(i.productId, { totalQty: i.quantity });
+  });
+
   const filteredBalance = balance.filter((p) => {
     if (!form.programId) return true;
+    // When parcel has NF items, show only those products
+    if (parcelaProductIds.size > 0) return parcelaProductIds.has(p.id);
     return selectedProgramType && (p.program?.type === selectedProgramType || !p.programId);
   });
 
@@ -341,8 +373,9 @@ export default function StockExitsPage() {
                   <p className="text-sm text-slate-400 text-center py-4 border border-slate-200 rounded-xl">Nenhum produto em estoque para este programa.</p>
                 ) : (
                   <div className="border border-slate-200 rounded-xl overflow-hidden">
-                    <div className="grid grid-cols-[2fr_0.8fr_0.9fr_0.9fr_0.8fr] gap-0 bg-slate-50 border-b border-slate-200 px-3 py-2 text-xs font-semibold text-slate-500 uppercase">
+                    <div className="grid grid-cols-[2fr_0.7fr_0.7fr_0.9fr_0.8fr_0.7fr] gap-0 bg-slate-50 border-b border-slate-200 px-3 py-2 text-xs font-semibold text-slate-500 uppercase">
                       <span>Produto</span>
+                      <span className="text-right text-green-700">Na NF</span>
                       <span className="text-right">Saldo</span>
                       <span className="text-right text-red-600">Qtd Saída</span>
                       <span className="text-right">Vl. Unit.</span>
@@ -356,10 +389,13 @@ export default function StockExitsPage() {
                         const rowTotal = qty * price;
                         const isDeficit = qty > 0 && qty > p.balance;
                         return (
-                          <div key={p.id} className={`grid grid-cols-[2fr_0.8fr_0.9fr_0.9fr_0.8fr] gap-0 px-3 py-2 items-center ${isDeficit ? "bg-red-50" : ""}`}>
+                          <div key={p.id} className={`grid grid-cols-[2fr_0.7fr_0.7fr_0.9fr_0.8fr_0.7fr] gap-0 px-3 py-2 items-center ${isDeficit ? "bg-red-50" : ""}`}>
                             <div>
                               <p className="text-sm font-medium text-slate-700">{p.name}</p>
                               <p className="text-xs text-slate-400">{p.unit}</p>
+                            </div>
+                            <div className="text-right text-xs font-semibold text-green-700">
+                              {parcelaItemsMap.get(p.id)?.totalQty.toFixed(2) ?? "—"}
                             </div>
                             <div className={`text-right text-sm font-semibold ${p.balance <= 0 ? "text-red-500" : "text-slate-600"}`}>
                               {p.balance.toFixed(2)}
