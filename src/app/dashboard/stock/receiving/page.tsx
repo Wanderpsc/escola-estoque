@@ -54,6 +54,7 @@ export default function ReceivingPage() {
 
   // Filtro
   const [filterStatus, setFilterStatus] = useState<string>("");
+  const [search, setSearch] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -107,7 +108,14 @@ export default function ReceivingPage() {
     } finally { setSaving(false); }
   }
 
-  const filtered = entries.filter((e) => !filterStatus || e.receiptStatus === filterStatus);
+  const filtered = entries.filter((e) => {
+    if (filterStatus && e.receiptStatus !== filterStatus) return false;
+    if (!search) return true;
+    const s = search.toLowerCase();
+    return e.invoiceNumber.toLowerCase().includes(s) ||
+           e.supplierName.toLowerCase().includes(s) ||
+           e.programName.toLowerCase().includes(s);
+  });
 
   const summaryPending  = entries.filter((e) => e.receiptStatus === "PENDING").length;
   const summaryPartial  = entries.filter((e) => e.receiptStatus === "PARTIAL").length;
@@ -122,6 +130,17 @@ export default function ReceivingPage() {
         title="Recebimento de Mercadorias"
         description="Acompanhe o recebimento dos produtos de cada Nota Fiscal. Registre entregas parciais e veja o que ainda está pendente."
       />
+
+      {/* Busca */}
+      <div className="mb-4">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Buscar por nº NF, fornecedor ou programa..."
+          className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+      </div>
 
       {/* Resumo de status */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">

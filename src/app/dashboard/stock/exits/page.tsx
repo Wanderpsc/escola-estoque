@@ -15,7 +15,7 @@ interface Exit {
 }
 
 const EMPTY_FORM = {
-  programId: "", productId: "", quantity: 1, unitPrice: 0,
+  programId: "",
   exitDate: new Date().toISOString().split("T")[0],
   reason: "CONSUMO", observations: "",
   isExtra: false,
@@ -36,6 +36,8 @@ export default function StockExitsPage() {
   const [entries, setEntries] = useState<Array<{ id: string; invoiceNumber: string; invoiceSeries?: string; invoiceDate: string; totalValue: number; programId: string; supplier: { name: string }; program: { name: string; type: string } }>>([]); 
   const [balance, setBalance] = useState<Array<{ id: string; name: string; unit: string; balance: number; avgPrice: number; programId?: string; program: { type: string } }>>([]); 
   const [form, setForm] = useState(EMPTY_FORM);
+  const [exitRows, setExitRows] = useState<Record<string, { qty: string; price: string }>>({});
+  const [programSearch, setProgramSearch] = useState("");
 
   // List-level filter (separate from the form's programId)
   const [listFilterProgramId, setListFilterProgramId] = useState("");
@@ -55,40 +57,68 @@ export default function StockExitsPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Populate exit rows when program changes
+  useEffect(() => {
+    if (!form.programId) { setExitRows({}); return; }
+    const prog = programs.find((p) => p.id === form.programId);
+    if (!prog) { setExitRows({}); return; }
+    const rows: Record<string, { qty: string; price: string }> = {};
+    balance
+      .filter((p) => !p.programId || p.program?.type === prog.type)
+      .forEach((p) => { rows[p.id] = { qty: "", price: (p.avgPrice ?? 0).toFixed(2) }; });
+    setExitRows(rows);
+  }, [form.programId, balance, programs]);
+
   const selectedProgramType = programs.find((p) => p.id === form.programId)?.type;
   const filteredBalance = balance.filter((p) => {
     if (!form.programId) return true;
-    // Catálogo (programId null/undefined) aparece em todos os programas
     return selectedProgramType && (p.program?.type === selectedProgramType || !p.programId);
   });
 
-  const selectedProduct = balance.find((p) => p.id === form.productId);
-  const totalValue = Number(form.quantity) * Number(form.unitPrice);
-
-  function handleProductChange(productId: string) {
-    const prod = balance.find((p) => p.id === productId);
-    setForm((f) => ({ ...f, productId, unitPrice: prod?.avgPrice ?? 0 }));
-  }
+  // Build searchable index: programId → NF numbers and supplier names
+  const programSearchTerms = new Map<string, Set<string>>();
+  entries.forEach((e) => {
+    if (!programSearchTerms.has(e.programId)) programSearchTerms.set(e.programId, new Set());
+    const terms = programSearchTerms.get(e.programId)!;
+    terms.add(e.invoiceNumber.toLowerCase());
+    terms.add(e.supplier.name.toLowerCase());
+  });
+  const filteredPrograms = programs.filter((p) => {
+    if (!programSearch) return true;
+    const s = programSearch.toLowerCase();
+    if (p.name.toLowerCase().includes(s)) return true;
+    return [...(programSearchTerms.get(p.id) ?? [])].some((t) => t.includes(s));
+  });
 
   async function handleSave() {
-    if (!form.programId || !form.productId || !form.exitDate) {
+    if (!form.programId || !form.exitDate) {
       toast.error("Preencha todos os campos obrigatórios (*)"); return;
     }
-    if (Number(form.quantity) <= 0) { toast.error("Quantidade deve ser maior que zero"); return; }
-    const qty = Number(form.quantity);
-    const isDeficit = !form.isExtra && selectedProduct && qty > selectedProduct.balance;
+    const validRows = Object.entries(exitRows).filter(([, r]) => Number(r.qty) > 0);
+    if (validRows.length === 0) { toast.error("Informe a quantidade de ao menos um produto"); return; }
 
-    let baseObs = form.isExtra && form.nfEntryId
-      ? (() => {
-          const nf = entries.find(e => e.id === form.nfEntryId);
-          const parcela = nf?.invoiceSeries ? ` · Parcela ${nf.invoiceSeries}` : "";
-          const ref = nf ? `NF ${nf.invoiceNumber} — ${nf.program.name}${parcela}` : form.nfEntryId;
-          return `[NF Ref.: ${ref}] ${form.observations}`.trim();
-        })()
-      : form.observations;
-    if (isDeficit && selectedProduct) {
-      const deficit = qty - selectedProduct.balance;
-      baseObs = `[RESSALVA: saldo insuficiente — déficit de ${deficit.toFixed(2)} ${selectedProduct.unit}]${baseObs ? " " + baseObs : ""}`;
+    const items = validRows.map(([productId, r]) => ({
+      productId, quantity: Number(r.qty), unitPrice: Number(r.price),
+    }));
+
+    const deficitItems = items.filter(({ productId, quantity }) => {
+      const prod = balance.find((p) => p.id === productId);
+      return !form.isExtra && prod && quantity > prod.balance;
+    });
+
+    let obs = form.observations;
+    if (deficitItems.length > 0) {
+      const desc = deficitItems.map(({ productId, quantity }) => {
+        const prod = balance.find((p) => p.id === productId);
+        return `${prod?.name}: déficit ${(quantity - (prod?.balance ?? 0)).toFixed(2)} ${prod?.unit ?? ""}`;
+      }).join("; ");
+      obs = `[RESSALVA: saldo insuficiente — ${desc}]${obs ? " " + obs : ""}`;
+    }
+    if (form.isExtra && form.nfEntryId) {
+      const nf = entries.find((e) => e.id === form.nfEntryId);
+      const parcela = nf?.invoiceSeries ? ` · Parcela ${nf.invoiceSeries}` : "";
+      const ref = nf ? `NF ${nf.invoiceNumber} — ${nf.program.name}${parcela}` : form.nfEntryId;
+      obs = `[NF Ref.: ${ref}] ${obs}`.trim();
     }
 
     setSaving(true);
@@ -100,21 +130,23 @@ export default function StockExitsPage() {
           programId: form.programId,
           exitDate: form.exitDate,
           reason: form.reason,
-          observations: baseObs || undefined,
+          observations: obs || undefined,
           isExtra: form.isExtra,
-          forceRegister: !!isDeficit,
-          items: [{ productId: form.productId, quantity: qty, unitPrice: Number(form.unitPrice) }],
+          forceRegister: deficitItems.length > 0,
+          items,
         }),
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error ?? data.message ?? "Erro ao registrar saida"); return; }
       toast.success(
         form.isExtra ? "Saída Extra registrada! Débito financeiro criado automaticamente."
-        : isDeficit ? "Saída registrada com ressalva! Saldo insuficiente — déficit anotado nas observações."
-        : "Saida registrada!"
+        : deficitItems.length > 0 ? `${items.length} produto(s) registrados com ressalva de saldo insuficiente.`
+        : `${items.length} produto(s) registrados com sucesso!`
       );
       setModal(false);
       setForm(EMPTY_FORM);
+      setExitRows({});
+      setProgramSearch("");
       load();
     } finally { setSaving(false); }
   }
@@ -259,105 +291,161 @@ export default function StockExitsPage() {
         </div>
       )}
 
-      <Modal open={modal} onClose={() => { setModal(false); setForm(EMPTY_FORM); }} title="Registrar Saida de Produto" size="lg">
+      <Modal open={modal} onClose={() => { setModal(false); setForm(EMPTY_FORM); setExitRows({}); setProgramSearch(""); }} title="Registrar Saídas de Estoque" size="xl">
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <Select label="Programa *" value={form.programId}
-              onChange={(e) => setForm({ ...form, programId: e.target.value, productId: "", unitPrice: 0 })}
-              options={[{ value: "", label: "— Selecione o programa —" }, ...programs.map((p) => ({ value: p.id, label: p.name }))]} />
-            <Select label="Produto *" value={form.productId}
-              onChange={(e) => handleProductChange(e.target.value)}
-              options={[
-                { value: "", label: form.programId ? "— Selecione o produto —" : "Selecione o programa primeiro" },
-                ...filteredBalance.map((p) => ({
-                  value: p.id,
-                  label: p.balance <= 0
-                    ? `${p.name} — SEM SALDO (${p.unit})`
-                    : `${p.name} (saldo: ${p.balance.toFixed(2)} ${p.unit})`,
-                })),
-              ]} />
-          </div>
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <Input label="Quantidade *" type="number" min={0.01} step={0.01} value={form.quantity}
-                onChange={(e) => setForm({ ...form, quantity: Number(e.target.value) })} />
-              {selectedProduct && selectedProduct.balance > 0 && Number(form.quantity) <= selectedProduct.balance && (
-                <p className="text-xs text-slate-400 mt-1">Saldo disponivel: <strong>{selectedProduct.balance.toFixed(2)} {selectedProduct.unit}</strong></p>
-              )}
-              {selectedProduct && selectedProduct.balance <= 0 && (
-                <div className="mt-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700">
-                  <strong>⚠️ Estoque ESGOTADO.</strong> Esta saída será registrada com ressalva. O valor (<strong>{formatCurrency(Number(form.quantity) * Number(form.unitPrice))}</strong>) será abatido do orçamento do programa e poderá causar déficit em outros produtos ao final do período.
-                </div>
-              )}
-              {selectedProduct && selectedProduct.balance > 0 && Number(form.quantity) > selectedProduct.balance && (
-                <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700">
-                  <strong>⚠️ Estoque se esgotando.</strong> Saldo disponível: <strong>{selectedProduct.balance.toFixed(2)} {selectedProduct.unit}</strong>. O excedente de <strong>{(Number(form.quantity) - selectedProduct.balance).toFixed(2)} {selectedProduct.unit}</strong> ({formatCurrency((Number(form.quantity) - selectedProduct.balance) * Number(form.unitPrice))}) será abatido do total do programa e poderá causar déficit. A saída será registrada com ressalva.
-                </div>
-              )}
-            </div>
-            <Input label="Valor Unitario (R$)" type="number" min={0} step={0.01} value={form.unitPrice}
-              onChange={(e) => setForm({ ...form, unitPrice: Number(e.target.value) })} />
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Valor Total (auto)</label>
-              <div className="px-3 py-2.5 bg-red-50 border border-red-200 rounded-lg text-red-700 font-bold text-sm">{formatCurrency(totalValue)}</div>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <Input label="Data da Saida *" type="date" value={form.exitDate}
-              onChange={(e) => setForm({ ...form, exitDate: e.target.value })} />
-            <Select label="Motivo *" value={form.reason}
-              onChange={(e) => setForm({ ...form, reason: e.target.value })}
-              options={Object.entries(EXIT_REASONS).map(([v, l]) => ({ value: v, label: l }))} />
-          </div>
-          <Input label="Observacoes" value={form.observations}
-            onChange={(e) => setForm({ ...form, observations: e.target.value })}
-            placeholder="Destino, turma atendida, responsavel, etc." />
-          <label className={`flex items-start gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors ${form.isExtra ? "border-orange-400 bg-orange-50" : "border-slate-200 hover:border-slate-300"}`}>
+          {/* Busca + Seleção de programa */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Buscar Programa / Parcela *</label>
             <input
-              type="checkbox"
-              className="mt-0.5 rounded border-slate-300 text-orange-500"
-              checked={form.isExtra}
-              onChange={(e) => setForm({ ...form, isExtra: e.target.checked, nfEntryId: "" })}
+              type="text"
+              value={programSearch}
+              onChange={(e) => setProgramSearch(e.target.value)}
+              placeholder="Digite nome da parcela, nº da NF ou nome do fornecedor..."
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 mb-2"
             />
-            <div>
-              <p className="text-sm font-semibold text-slate-700">Saída Extra <span className="font-normal text-orange-600">(produto sem NF)</span></p>
-              <p className="text-xs text-slate-400 leading-tight">Marca a saída como extra e cria automaticamente um débito no orçamento do programa.</p>
-            </div>
-          </label>
-          {form.isExtra && (
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">
-                NF de Referência <span className="text-slate-400">(opcional — nota fiscal cujo recurso foi utilizado)</span>
-              </label>
-              <select
-                value={form.nfEntryId}
-                onChange={(e) => setForm({ ...form, nfEntryId: e.target.value })}
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-              >
-                <option value="">— Nenhuma (apenas debita o orçamento) —</option>
-                {entries
-                  .filter(e => !form.programId || e.programId === form.programId)
-                  .map(e => {
-                    const parcela = e.invoiceSeries ? ` · Parcela ${e.invoiceSeries}` : "";
-                    return (
-                      <option key={e.id} value={e.id}>
-                        NF — {e.invoiceNumber} — {e.supplier.name} — {e.program.name}{parcela} — {new Date(e.invoiceDate).toLocaleDateString("pt-BR")}
-                      </option>
-                    );
-                  })
-                }
-              </select>
-              {form.nfEntryId && (
-                <p className="text-xs text-orange-600 mt-1">
-                  O valor extra será debitado do orçamento do programa vinculado a essa NF.
+            <select
+              value={form.programId}
+              onChange={(e) => setForm({ ...form, programId: e.target.value })}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">— Selecione o programa / parcela —</option>
+              {filteredPrograms.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+            {programSearch && filteredPrograms.length === 0 && (
+              <p className="text-xs text-red-500 mt-1">Nenhum programa encontrado para &quot;{programSearch}&quot;</p>
+            )}
+          </div>
+
+          {form.programId && (
+            <>
+              <div className="grid grid-cols-3 gap-4">
+                <Input label="Data da Saída *" type="date" value={form.exitDate}
+                  onChange={(e) => setForm({ ...form, exitDate: e.target.value })} />
+                <Select label="Motivo *" value={form.reason}
+                  onChange={(e) => setForm({ ...form, reason: e.target.value })}
+                  options={Object.entries(EXIT_REASONS).map(([v, l]) => ({ value: v, label: l }))} />
+                <Input label="Observações" value={form.observations}
+                  onChange={(e) => setForm({ ...form, observations: e.target.value })}
+                  placeholder="Destino, turma, responsável..." />
+              </div>
+
+              {/* Tabela de produtos */}
+              <div>
+                <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">
+                  Produtos em Estoque — {programs.find((p) => p.id === form.programId)?.name}
+                  <span className="text-slate-400 font-normal ml-2">Preencha a quantidade dos produtos a baixar</span>
                 </p>
+                {filteredBalance.length === 0 ? (
+                  <p className="text-sm text-slate-400 text-center py-4 border border-slate-200 rounded-xl">Nenhum produto em estoque para este programa.</p>
+                ) : (
+                  <div className="border border-slate-200 rounded-xl overflow-hidden">
+                    <div className="grid grid-cols-[2fr_0.8fr_0.9fr_0.9fr_0.8fr] gap-0 bg-slate-50 border-b border-slate-200 px-3 py-2 text-xs font-semibold text-slate-500 uppercase">
+                      <span>Produto</span>
+                      <span className="text-right">Saldo</span>
+                      <span className="text-right text-red-600">Qtd Saída</span>
+                      <span className="text-right">Vl. Unit.</span>
+                      <span className="text-right">Total</span>
+                    </div>
+                    <div className="divide-y divide-slate-100 max-h-72 overflow-y-auto">
+                      {filteredBalance.map((p) => {
+                        const row = exitRows[p.id] ?? { qty: "", price: (p.avgPrice ?? 0).toFixed(2) };
+                        const qty = Number(row.qty) || 0;
+                        const price = Number(row.price) || 0;
+                        const rowTotal = qty * price;
+                        const isDeficit = qty > 0 && qty > p.balance;
+                        return (
+                          <div key={p.id} className={`grid grid-cols-[2fr_0.8fr_0.9fr_0.9fr_0.8fr] gap-0 px-3 py-2 items-center ${isDeficit ? "bg-red-50" : ""}`}>
+                            <div>
+                              <p className="text-sm font-medium text-slate-700">{p.name}</p>
+                              <p className="text-xs text-slate-400">{p.unit}</p>
+                            </div>
+                            <div className={`text-right text-sm font-semibold ${p.balance <= 0 ? "text-red-500" : "text-slate-600"}`}>
+                              {p.balance.toFixed(2)}
+                            </div>
+                            <div className="flex justify-end">
+                              <input
+                                type="number" min={0} step="0.001"
+                                value={row.qty}
+                                onChange={(e) => setExitRows((prev) => ({ ...prev, [p.id]: { ...(prev[p.id] ?? { price: (p.avgPrice ?? 0).toFixed(2) }), qty: e.target.value } }))}
+                                placeholder="0"
+                                className={`w-24 border rounded-lg px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 ${isDeficit ? "border-red-400 focus:ring-red-400 bg-red-50" : "border-slate-300 focus:ring-blue-500"}`}
+                              />
+                            </div>
+                            <div className="flex justify-end">
+                              <input
+                                type="number" min={0} step="0.01"
+                                value={row.price}
+                                onChange={(e) => setExitRows((prev) => ({ ...prev, [p.id]: { ...(prev[p.id] ?? { qty: "" }), price: e.target.value } }))}
+                                className="w-24 border border-slate-300 rounded-lg px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              />
+                            </div>
+                            <div className={`text-right text-sm font-semibold ${rowTotal > 0 ? "text-red-600" : "text-slate-300"}`}>
+                              {rowTotal > 0 ? formatCurrency(rowTotal) : "—"}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                {Object.entries(exitRows).some(([pid, r]) => {
+                  const prod = balance.find((p) => p.id === pid);
+                  return Number(r.qty) > 0 && prod && Number(r.qty) > prod.balance;
+                }) && (
+                  <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700">
+                    ⚠️ Um ou mais produtos terão <strong>saldo insuficiente</strong>. A saída será registrada com ressalva nas observações.
+                  </div>
+                )}
+              </div>
+
+              {/* isExtra toggle */}
+              <label className={`flex items-start gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors ${form.isExtra ? "border-orange-400 bg-orange-50" : "border-slate-200 hover:border-slate-300"}`}>
+                <input type="checkbox" className="mt-0.5 rounded border-slate-300 text-orange-500"
+                  checked={form.isExtra}
+                  onChange={(e) => setForm({ ...form, isExtra: e.target.checked, nfEntryId: "" })} />
+                <div>
+                  <p className="text-sm font-semibold text-slate-700">Saída Extra <span className="font-normal text-orange-600">(produtos sem NF)</span></p>
+                  <p className="text-xs text-slate-400 leading-tight">Cria débito financeiro separado no orçamento do programa.</p>
+                </div>
+              </label>
+              {form.isExtra && (
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">NF de Referência <span className="text-slate-400">(opcional)</span></label>
+                  <select value={form.nfEntryId}
+                    onChange={(e) => setForm({ ...form, nfEntryId: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400">
+                    <option value="">— Nenhuma (apenas debita o orçamento) —</option>
+                    {entries
+                      .filter((e) => !form.programId || e.programId === form.programId)
+                      .map((e) => (
+                        <option key={e.id} value={e.id}>
+                          NF {e.invoiceNumber} — {e.supplier.name} — {new Date(e.invoiceDate).toLocaleDateString("pt-BR")}
+                        </option>
+                      ))}
+                  </select>
+                </div>
               )}
-            </div>
+
+              {/* Total resumo */}
+              {Object.values(exitRows).some((r) => Number(r.qty) > 0) && (
+                <div className="flex items-center justify-between bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+                  <div>
+                    <p className="text-xs text-red-600">Total das saídas</p>
+                    <p className="text-xs text-red-400">{Object.values(exitRows).filter((r) => Number(r.qty) > 0).length} produto(s) com quantidade informada</p>
+                  </div>
+                  <p className="text-xl font-bold text-red-700">
+                    {formatCurrency(Object.entries(exitRows).reduce((s, [, r]) => s + Number(r.qty) * Number(r.price), 0))}
+                  </p>
+                </div>
+              )}
+            </>
           )}
         </div>
         <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
-          <Button variant="secondary" onClick={() => { setModal(false); setForm(EMPTY_FORM); }}>Cancelar</Button>
-          <Button onClick={handleSave} loading={saving}>Registrar Saida</Button>
+          <Button variant="secondary" onClick={() => { setModal(false); setForm(EMPTY_FORM); setExitRows({}); setProgramSearch(""); }}>Cancelar</Button>
+          <Button onClick={handleSave} loading={saving} disabled={!form.programId}>Registrar Saídas</Button>
         </div>
       </Modal>
 
