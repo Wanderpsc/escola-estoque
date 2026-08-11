@@ -48,7 +48,6 @@ export default function ReceivingPage() {
   // Recebimento inline
   const [activeNF, setActiveNF] = useState<NfEntry | null>(null);
   const [nfSearch, setNfSearch] = useState("");
-  const [showResults, setShowResults] = useState(false);
   const [receiveDate, setReceiveDate] = useState(new Date().toISOString().split("T")[0]);
   const [receiveNotes, setReceiveNotes] = useState("");
   const [receiveQtys, setReceiveQtys] = useState<Record<string, string>>({});
@@ -76,8 +75,7 @@ export default function ReceivingPage() {
 
   function selectNF(entry: NfEntry) {
     setActiveNF(entry);
-    setNfSearch(`NF ${entry.invoiceNumber || "(sem nº)"} — ${entry.supplierName}`);
-    setShowResults(false);
+    setNfSearch("");
     setReceiveDate(new Date().toISOString().split("T")[0]);
     setReceiveNotes("");
     const initial: Record<string, string> = {};
@@ -104,19 +102,18 @@ export default function ReceivingPage() {
       if (!res.ok) { toast.error(data.error ?? "Erro ao registrar recebimento"); return; }
       toast.success("Recebimento registrado com sucesso!");
       setActiveNF(null);
-      setNfSearch("");
       load();
     } finally { setSaving(false); }
   }
 
-  const nfResults = nfSearch.length === 0
-    ? entries.slice(0, 10)
+  const nfResults = nfSearch.trim().length === 0
+    ? entries
     : entries.filter((e) => {
         const s = nfSearch.toLowerCase();
         return e.invoiceNumber.toLowerCase().includes(s) ||
                e.supplierName.toLowerCase().includes(s) ||
                e.programName.toLowerCase().includes(s);
-      }).slice(0, 10);
+      });
 
   const trackedNFs = entries.filter((e) => e.receiptStatus !== "NO_TRACKING");
   const filteredTracked = trackedNFs.filter((e) => !filterStatus || e.receiptStatus === filterStatus);
@@ -136,59 +133,51 @@ export default function ReceivingPage() {
           <p className="text-xs text-blue-600 mt-0.5">Busque pela NF, fornecedor ou parcela para dar baixa nos itens recebidos</p>
         </div>
         <div className="p-5">
-          <div className="relative">
-            <input
-              type="text"
-              value={nfSearch}
-              onChange={(e) => { setNfSearch(e.target.value); setShowResults(true); if (activeNF) setActiveNF(null); }}
-              onFocus={() => setShowResults(true)}
-              onBlur={() => setTimeout(() => setShowResults(false), 150)}
-              placeholder="Buscar NF por número, fornecedor ou parcela..."
-              className="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 pr-10"
-            />
-            {nfSearch && (
-              <button onClick={() => { setNfSearch(""); setActiveNF(null); setShowResults(false); }}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-500">
-                <X className="w-4 h-4" />
-              </button>
-            )}
-            {showResults && !activeNF && (
-              <div className="absolute top-full left-0 right-0 z-20 bg-white border border-slate-200 rounded-xl shadow-xl mt-1 overflow-hidden">
-                {nfResults.length > 0 ? (
-                  <div className="max-h-64 overflow-y-auto divide-y divide-slate-100">
-                    {nfResults.map((e) => (
-                      <button key={e.id} onClick={() => selectNF(e)}
-                        className="w-full text-left px-4 py-3 hover:bg-blue-50 transition-colors">
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="flex items-center gap-2 flex-wrap min-w-0">
-                            <ReceiptBadge status={e.receiptStatus} />
-                            <span className="font-semibold text-slate-800">NF {e.invoiceNumber || "(sem número)"}</span>
-                            <span className="text-slate-500 text-sm">{e.supplierName}</span>
-                            <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{e.programName}</span>
-                          </div>
-                          <div className="text-right shrink-0">
-                            <p className="text-sm font-semibold text-slate-700">{formatCurrency(e.totalValue)}</p>
-                            <p className="text-xs text-slate-400">{formatDate(e.invoiceDate)}</p>
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="px-4 py-3 text-sm text-slate-400">Nenhuma NF encontrada para &quot;{nfSearch}&quot;</div>
+          {!activeNF && (
+            <div className="space-y-2">
+              <div className="relative">
+                <input
+                  type="text"
+                  value={nfSearch}
+                  onChange={(e) => setNfSearch(e.target.value)}
+                  placeholder="Filtrar por número, fornecedor ou parcela..."
+                  className="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 pr-10"
+                />
+                {nfSearch && (
+                  <button onClick={() => setNfSearch("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-500">
+                    <X className="w-4 h-4" />
+                  </button>
                 )}
               </div>
-            )}
-          </div>
 
-          {!activeNF && !nfSearch && !showResults && !loading && (
-            <p className="text-center text-xs text-slate-400 mt-4">
-              {entries.length} nota(s) fiscal(is) disponível(is) — clique no campo para selecionar
-            </p>
-          )}
-          {loading && !activeNF && (
-            <div className="flex justify-center py-4">
-              <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+              {loading ? (
+                <div className="flex justify-center py-4">
+                  <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : nfResults.length === 0 ? (
+                <div className="px-4 py-3 text-sm text-slate-400 text-center">Nenhuma NF encontrada</div>
+              ) : (
+                <div className="border border-slate-200 rounded-xl overflow-hidden max-h-72 overflow-y-auto divide-y divide-slate-100">
+                  {nfResults.map((e) => (
+                    <button key={e.id} onClick={() => selectNF(e)}
+                      className="w-full text-left px-4 py-3 hover:bg-blue-50 transition-colors">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2 flex-wrap min-w-0">
+                          <ReceiptBadge status={e.receiptStatus} />
+                          <span className="font-semibold text-slate-800">NF {e.invoiceNumber || "(sem número)"}</span>
+                          <span className="text-slate-500 text-sm">{e.supplierName}</span>
+                          <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{e.programName}</span>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-sm font-semibold text-slate-700">{formatCurrency(e.totalValue)}</p>
+                          <p className="text-xs text-slate-400">{formatDate(e.invoiceDate)}</p>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
