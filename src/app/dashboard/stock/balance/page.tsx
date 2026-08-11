@@ -10,9 +10,11 @@ import { toast } from "sonner";
 interface Balance {
   id: string; name: string; unit: string; ncmCode: string; minStock: number;
   programId: string;
-  balance: number; totalIn: number; totalOut: number; totalAdjusted: number;
+  totalIn: number; totalOut: number; totalAdjusted: number;
+  totalOrdered: number; totalReceived: number; totalConsumed: number;
+  internalStock: number; pendingDelivery: number; pendingDeliveryValue: number;
   totalDelivered: number | null; pendingReceipt: number | null; hasDeliveryTracking: boolean;
-  avgPrice: number; totalValue: number;
+  balance: number; avgPrice: number; totalValue: number;
   status: "OK" | "LOW" | "ZERO";
   program: { name: string; type: string };
 }
@@ -261,7 +263,9 @@ export default function StockBalancePage() {
 
   const uniquePrograms = [...new Map(items.map(i => [i.programId, { id: i.programId, name: i.program?.name ?? "", type: i.program?.type ?? "" }])).values()];
 
-  const totalValue = filtered.reduce((s, i) => s + i.totalValue, 0);
+  const totalInternalValue = filtered.reduce((s, i) => s + i.totalValue, 0);
+  const totalPendingSupplierValue = filtered.reduce((s, i) => s + (i.pendingDeliveryValue ?? 0), 0);
+  const totalValue = totalInternalValue;
   const counts = {
     OK: items.filter((i) => i.status === "OK").length,
     LOW: items.filter((i) => i.status === "LOW").length,
@@ -285,8 +289,11 @@ export default function StockBalancePage() {
             </button>
           </div>
           <div className="text-right">
-            <p className="text-xs text-slate-500">Valor total em estoque</p>
-            <p className="text-xl font-bold text-blue-700">{formatCurrency(totalValue)}</p>
+            <p className="text-xs text-slate-500">Valor Interno (escola)</p>
+            <p className="text-xl font-bold text-blue-700">{formatCurrency(totalInternalValue)}</p>
+            {totalPendingSupplierValue > 0 && (
+              <p className="text-xs text-orange-600 mt-0.5">+ {formatCurrency(totalPendingSupplierValue)} c/ fornecedores</p>
+            )}
           </div>
         </div>
       </PageHeader>
@@ -326,15 +333,12 @@ export default function StockBalancePage() {
         </div>
       )}
 
-      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4 flex items-start gap-3">
-        <SlidersHorizontal className="w-5 h-5 text-blue-500 mt-0.5 shrink-0" />
-        <div>
-          <p className="text-sm font-semibold text-blue-800">Ano letivo em andamento?</p>
-          <p className="text-xs text-blue-600">
-            Clique no botao <strong>Aj.</strong> de qualquer produto para registrar saldo de repasses
-            anteriores ao inicio do uso do sistema. Valores negativos representam debitos ou devolucoes.
-          </p>
-        </div>
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4 text-xs text-blue-700 flex flex-wrap gap-x-6 gap-y-1">
+        <span><strong>Comprado (NF)</strong> = comprometido em Nota Fiscal</span>
+        <span><strong>Recebido</strong> = entregue fisicamente à escola (se rastreado)</span>
+        <span><strong>Consumido</strong> = utilizado / saída de estoque</span>
+        <span className="font-semibold text-blue-800"><strong>Estoque Interno</strong> = recebido − consumido (real na escola)</span>
+        <span className="text-orange-600"><strong>Pend. Fornecedor</strong> = comprado mas ainda não entregue (valor no mercado)</span>
       </div>
 
       {loading ? (
@@ -347,39 +351,66 @@ export default function StockBalancePage() {
             <thead>
               <tr>
                 <Th>Produto</Th>
-                <Th>NCM</Th>
                 <Th>Programa</Th>
-                <Th>Na NF</Th>
-                <Th>A Receber</Th>
-                <Th>Saídas</Th>
-                <Th>Ant.</Th>
-                <Th>Saldo</Th>
-                <Th>Valor Medio</Th>
-                <Th>Valor em Estoque</Th>
+                <Th>Comprado (NF)</Th>
+                <Th>Recebido</Th>
+                <Th>Consumido</Th>
+                <Th>Estoque Interno</Th>
+                <Th>Pend. Fornecedor</Th>
+                <Th>Vl. Interno</Th>
+                <Th>Vl. c/ Forn.</Th>
+                <Th>Aj.</Th>
                 <Th>Status</Th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((p) => (
                 <tr key={p.id} className={`hover:bg-slate-50 ${p.status === "ZERO" ? "bg-red-50" : p.status === "LOW" ? "bg-yellow-50" : ""}`}>
-                  <Td><span className="font-medium">{p.name}</span></Td>
-                  <Td className="font-mono text-xs text-slate-500">{p.ncmCode}</Td>
+                  <Td>
+                    <div>
+                      <span className="font-medium">{p.name}</span>
+                      <span className="block text-xs text-slate-400 font-mono">{p.ncmCode}</span>
+                    </div>
+                  </Td>
                   <Td>
                     <Badge color={p.program?.type === "MERENDA" ? "green" : p.program?.type === "MANUTENCAO" ? "blue" : "purple"}>
                       {PROGRAM_TYPES[p.program?.type as keyof typeof PROGRAM_TYPES]?.label ?? p.program?.type}
                     </Badge>
                   </Td>
-                  <Td className="text-green-700 font-medium">+{p.totalIn.toFixed(2)} {p.unit}</Td>
+                  {/* Comprado (NF) */}
+                  <Td className="text-green-700 font-medium">{p.totalOrdered.toFixed(2)} {p.unit}</Td>
+                  {/* Recebido */}
                   <Td>
-                    {p.hasDeliveryTracking && p.pendingReceipt != null ? (
-                      <span className={`font-semibold text-sm ${p.pendingReceipt > 0 ? "text-orange-600" : "text-slate-400"}`}>
-                        {p.pendingReceipt > 0 ? `${p.pendingReceipt.toFixed(2)} ${p.unit}` : "–"}
-                      </span>
-                    ) : (
-                      <span className="text-xs text-slate-300">–</span>
+                    {p.hasDeliveryTracking
+                      ? <span className="font-semibold text-blue-700">{p.totalReceived.toFixed(2)} {p.unit}</span>
+                      : <span className="text-xs text-slate-400">= NF</span>}
+                  </Td>
+                  {/* Consumido */}
+                  <Td className="text-red-600 font-medium">{p.totalConsumed.toFixed(2)} {p.unit}</Td>
+                  {/* Estoque Interno */}
+                  <Td>
+                    <span className={`font-bold text-base ${p.status === "ZERO" ? "text-red-600" : p.status === "LOW" ? "text-yellow-600" : "text-slate-800"}`}>
+                      {p.internalStock.toFixed(2)} {p.unit}
+                    </span>
+                    {p.totalAdjusted !== 0 && (
+                      <span className="block text-xs text-blue-500">adj: {p.totalAdjusted > 0 ? "+" : ""}{p.totalAdjusted.toFixed(2)}</span>
                     )}
                   </Td>
-                  <Td className="text-red-600 font-medium">-{p.totalOut.toFixed(2)} {p.unit}</Td>
+                  {/* Pendente Fornecedor */}
+                  <Td>
+                    {p.hasDeliveryTracking && p.pendingDelivery > 0
+                      ? <span className="font-semibold text-orange-600">{p.pendingDelivery.toFixed(2)} {p.unit}</span>
+                      : <span className="text-xs text-slate-300">–</span>}
+                  </Td>
+                  {/* Valor Interno */}
+                  <Td className="font-semibold text-slate-700">{formatCurrency(p.totalValue)}</Td>
+                  {/* Valor c/ Fornecedor */}
+                  <Td>
+                    {p.pendingDeliveryValue > 0
+                      ? <span className="font-semibold text-orange-600">{formatCurrency(p.pendingDeliveryValue)}</span>
+                      : <span className="text-xs text-slate-300">–</span>}
+                  </Td>
+                  {/* Ajuste */}
                   <Td>
                     <button
                       onClick={() => setSelectedProduct(p)}
@@ -390,18 +421,9 @@ export default function StockBalancePage() {
                           : "border-slate-200 text-slate-500 hover:border-blue-400 hover:text-blue-700 hover:bg-blue-50"}`}
                     >
                       <SlidersHorizontal className="w-3 h-3" />
-                      <span>
-                        {p.totalAdjusted !== 0
-                          ? `${p.totalAdjusted > 0 ? "+" : ""}${p.totalAdjusted.toFixed(2)}`
-                          : "Aj."}
-                      </span>
+                      <span>{p.totalAdjusted !== 0 ? `${p.totalAdjusted > 0 ? "+" : ""}${p.totalAdjusted.toFixed(2)}` : "Aj."}</span>
                     </button>
                   </Td>
-                  <Td className={`font-bold ${p.status === "ZERO" ? "text-red-600" : p.status === "LOW" ? "text-yellow-600" : "text-slate-800"}`}>
-                    {p.balance.toFixed(2)} {p.unit}
-                  </Td>
-                  <Td className="text-slate-500">{formatCurrency(p.avgPrice)}/{p.unit}</Td>
-                  <Td className="font-semibold">{formatCurrency(p.totalValue)}</Td>
                   <Td>{statusBadge(p.status)}</Td>
                 </tr>
               ))}

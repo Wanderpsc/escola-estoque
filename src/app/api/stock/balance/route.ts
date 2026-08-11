@@ -68,16 +68,13 @@ export async function GET(req: NextRequest) {
         ? p.adjustments.filter((a) => a.quantity > 0).reduce((s, a) => s + a.quantity * a.unitPrice, 0) /
           Math.max(p.adjustments.filter((a) => a.quantity > 0).reduce((s, a) => s + a.quantity, 0), 1)
         : 0;
-    const balanceQty = totalIn - totalOut + totalAdjusted;
-
-    // Rastreamento de recebimento: soma do que foi confirmado via DeliveryOrder vinculada a NF
     const totalDelivered = deliveredByProduct[p.id] ?? 0;
-    // Pendente = total nas NFs - total efetivamente recebido (somente produtos com rastreamento ativo)
     const hasDeliveryTracking = trackedProductIds.has(p.id) ||
       p.entryItems.some((ei) => trackedEntryIds.has(ei.entryId));
-    const pendingReceipt = hasDeliveryTracking
-      ? Math.max(totalIn - totalDelivered, 0)
-      : 0;
+    const totalReceived = hasDeliveryTracking ? totalDelivered : totalIn;
+    const internalStock = totalReceived - totalOut + totalAdjusted;
+    const pendingDelivery = hasDeliveryTracking ? Math.max(totalIn - totalDelivered, 0) : 0;
+    const pendingDeliveryValue = pendingDelivery * avgPrice;
 
     return {
       id: p.id,
@@ -90,13 +87,19 @@ export async function GET(req: NextRequest) {
       totalIn,
       totalOut,
       totalAdjusted,
+      totalOrdered: totalIn,
+      totalReceived,
+      totalConsumed: totalOut,
+      internalStock,
+      pendingDelivery,
+      pendingDeliveryValue,
       totalDelivered: hasDeliveryTracking ? totalDelivered : null,
-      pendingReceipt: hasDeliveryTracking ? pendingReceipt : null,
+      pendingReceipt: hasDeliveryTracking ? pendingDelivery : null,
       hasDeliveryTracking,
-      balance: balanceQty,
+      balance: internalStock,
       avgPrice,
-      totalValue: balanceQty * avgPrice,
-      status: balanceQty <= 0 ? "ZERO" : balanceQty <= p.minStock ? "LOW" : "OK",
+      totalValue: internalStock * avgPrice,
+      status: internalStock <= 0 ? "ZERO" : internalStock <= p.minStock ? "LOW" : "OK",
     };
   });
 
