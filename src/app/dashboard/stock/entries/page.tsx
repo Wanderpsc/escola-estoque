@@ -67,8 +67,10 @@ export default function StockEntriesPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Catálogo (programId null) aparece em todos os programas
-  const filteredProducts = products.filter((p) => !header.programId || !p.programId || p.programId === header.programId);
+  // Produtos sem programId (catálogo) aparecem em todos; produtos vinculados a qualquer programa do mesmo tipo também
+  const selectedProgram = programs.find((p) => p.id === header.programId);
+  const sameTypeIds = selectedProgram ? new Set(programs.filter((p) => p.type === selectedProgram.type).map((p) => p.id)) : null;
+  const filteredProducts = products.filter((p) => !header.programId || !p.programId || (sameTypeIds ? sameTypeIds.has(p.programId) : p.programId === header.programId));
   const totalNF = items.reduce((s, r) => s + Number(r.quantity || 0) * Number(r.unitPrice || 0), 0);
   const totalExtra = extraItems.reduce((s, r) => s + Number(r.quantity || 0) * Number(r.unitPrice || 0), 0);
 
