@@ -375,7 +375,7 @@ export default function StockEntriesPage() {
             <div className="grid grid-cols-[2.5fr_1.5fr_2fr_1.2fr_1fr_auto] gap-2 text-xs font-semibold text-slate-400 uppercase px-1 mb-1">
               <span>Produto *</span><span>Qtd *</span><span>Vl. Unit. (R$) *</span><span>Total</span><span>Lote</span><span></span>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
               {items.map((row, i) => {
                 const rowTotal = Number(row.quantity || 0) * Number(row.unitPrice || 0);
                 return (
