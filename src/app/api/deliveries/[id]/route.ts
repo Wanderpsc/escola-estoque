@@ -93,97 +93,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     );
 
     // Atualiza o status da ordem
+    // Entregas são apenas rastreamento — estoque e financeiro já entram pela NF registrada
     const updated = await db.deliveryOrder.update({
       where: { id },
       data: { status: finalStatus, confirmedById: userId, confirmedAt: new Date() },
       include: deliveryInclude,
     });
-
-    // ── Registra a entrega no estoque ──
-    // Se a entrega está vinculada a uma NF já existente (stockEntryId), o estoque
-    // já foi adicionado quando a NF foi registrada — apenas rastreia financeiramente.
-    // Se não há NF vinculada, cria uma StockEntry (DEL-xxx) para registrar a entrada.
-    const deliveredItems = confirmedItems.filter((ci) => ci.quantityDelivered > 0);
-    if (deliveredItems.length > 0) {
-      let programId = order.stockEntry?.programId ?? order.programId;
-      if (!programId) {
-        const firstItem = order.items[0];
-        const product = await db.product.findUnique({
-          where: { id: firstItem.productId },
-          select: { programId: true },
-        });
-        programId = product?.programId ?? null;
-      }
-
-      if (programId) {
-        const normalItems = deliveredItems.filter((ci) => {
-          const orig = order.items.find((i) => i.id === ci.id);
-          return !orig?.isExtra;
-        });
-        const extraItems = deliveredItems.filter((ci) => {
-          const orig = order.items.find((i) => i.id === ci.id);
-          return !!orig?.isExtra;
-        });
-
-        const totalNormal = normalItems.reduce((sum, ci) => {
-          const orig = order.items.find((i) => i.id === ci.id);
-          return sum + ci.quantityDelivered * (orig?.unitPrice ?? 0);
-        }, 0);
-        const totalExtra = extraItems.reduce((sum, ci) => {
-          const orig = order.items.find((i) => i.id === ci.id);
-          return sum + ci.quantityDelivered * (orig?.unitPrice ?? 0);
-        }, 0);
-        const totalValue = totalNormal + totalExtra;
-
-        const nfRef = order.stockEntry?.invoiceNumber
-          ? ` (NF ${order.stockEntry.invoiceNumber})`
-          : "";
-
-        // Só cria StockEntry (DEL-xxx) se a entrega NÃO está vinculada a uma NF já registrada
-        // (evita duplicar estoque: a NF original já adicionou os itens ao estoque)
-        if (!order.stockEntryId) {
-          await db.stockEntry.create({
-            data: {
-              invoiceNumber: `DEL-${id.slice(-8).toUpperCase()}`,
-              invoiceDate: order.deliveryDate,
-              totalValue,
-              supplierId: order.supplierId,
-              programId,
-              userId,
-              observations: `Entrega confirmada${nfRef} — ${order.notes ?? ""}`.trim(),
-              items: {
-                create: deliveredItems.map((ci) => {
-                  const orig = order.items.find((i) => i.id === ci.id)!;
-                  return {
-                    productId: orig.productId,
-                    quantity: ci.quantityDelivered,
-                    unitPrice: orig.unitPrice,
-                    totalPrice: ci.quantityDelivered * orig.unitPrice,
-                    isExtra: !!orig.isExtra,
-                  };
-                }),
-              },
-            },
-          });
-        }
-
-        // BudgetMovement só para itens extras (fora da NF) — não duplica a NF original
-        if (totalExtra > 0 || !order.stockEntryId) {
-          await db.budgetMovement.create({
-            data: {
-              programId,
-              type: "DEBIT",
-              amount: order.stockEntryId ? totalExtra : totalValue,
-              description: order.stockEntryId
-                ? `Entrega extras${nfRef} — Fornecedor: ${updated.supplier.name} (itens fora da NF)`
-                : `Entrega confirmada${nfRef} — Fornecedor: ${updated.supplier.name}${totalExtra > 0 ? ` (inclui R$ ${totalExtra.toFixed(2)} extras)` : ""}`,
-              reference: `DEL-${id.slice(-8).toUpperCase()}`,
-              date: order.deliveryDate,
-            },
-          });
-        }
-      }
-    }
 
     return NextResponse.json(updated);
   }
