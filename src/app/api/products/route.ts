@@ -11,8 +11,9 @@ const productSchema = z.object({
   unit: z.string().min(1),
   minStock: z.number().min(0).default(0),
   barcode: z.string().optional().nullable(),
-  programId: z.string(),
-  invoiceNumber: z.string().optional(), // permite duplicata quando informado
+  // null/undefined = produto de catálogo (sem programa fixo)
+  programId: z.string().optional().nullable(),
+  invoiceNumber: z.string().optional(),
 });
 
 export async function GET(req: NextRequest) {
@@ -25,7 +26,8 @@ export async function GET(req: NextRequest) {
   const programId = url.searchParams.get("programId");
 
   const where: any = role === "SUPER_ADMIN" ? {} : { schoolId: schoolId ?? "" };
-  if (programId) where.programId = programId;
+  // Quando filtrado por programa, inclui também produtos de catálogo (programId null)
+  if (programId) where.OR = [{ programId }, { programId: null }];
 
   // Busca por código de barras
   const barcode = url.searchParams.get("barcode");
@@ -77,13 +79,14 @@ export async function POST(req: NextRequest) {
     where: {
       name: { equals: productData.name, mode: "insensitive" },
       schoolId,
-      programId: productData.programId,
+      programId: productData.programId ?? null,
       active: true,
     },
   });
   if (duplicate && !invoiceNumber) {
+    const scope = productData.programId ? "neste programa" : "no catálogo";
     return NextResponse.json(
-      { error: `Produto "${productData.name}" já existe neste programa. Informe o número da NF para permitir o cadastro.` },
+      { error: `Produto "${productData.name}" já existe ${scope}. Informe o número da NF para permitir o cadastro.` },
       { status: 409 }
     );
   }

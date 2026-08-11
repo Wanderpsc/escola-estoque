@@ -202,7 +202,7 @@ export default function ProductsPage() {
 
   const filtered = products.filter((p) =>
     (p.name.toLowerCase().includes(search.toLowerCase()) || p.ncmCode.includes(search)) &&
-    (!filterProgram || p.program?.type === filterProgram)
+    (!filterProgram || (filterProgram === "CATALOGO" ? !p.program : p.program?.type === filterProgram))
   );
 
   const statusColor = (b: number, min: number) => b <= 0 ? "red" : b <= min ? "yellow" : "green";
@@ -222,6 +222,7 @@ export default function ProductsPage() {
         </div>
         <select value={filterProgram} onChange={(e) => setFilterProgram(e.target.value)} className="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white text-slate-700 focus:outline-none">
           <option value="">Todos os programas</option>
+          <option value="CATALOGO">Catálogo (sem programa)</option>
           {Object.entries(PROGRAM_TYPES).map(([v, { label }]) => <option key={v} value={v}>{label}</option>)}
         </select>
       </div>
@@ -256,9 +257,9 @@ export default function ProductsPage() {
                       : <span className="text-slate-200">—</span>}
                   </Td>
                   <Td>
-                    <Badge color={p.program?.type === "MERENDA" ? "green" : p.program?.type === "MANUTENCAO" ? "blue" : "purple"}>
-                      {PROGRAM_TYPES[p.program?.type as keyof typeof PROGRAM_TYPES]?.label ?? p.program?.type}
-                    </Badge>
+                    {p.program
+                      ? <Badge color={p.program.type === "MERENDA" ? "green" : p.program.type === "MANUTENCAO" ? "blue" : "purple"}>{PROGRAM_TYPES[p.program.type as keyof typeof PROGRAM_TYPES]?.label ?? p.program.type}</Badge>
+                      : <Badge color="yellow">Catálogo</Badge>}
                   </Td>
                   <Td className="text-slate-500">{p.unit}</Td>
                   <Td className="font-semibold">{(p.balance ?? 0).toFixed(2)} {p.unit}</Td>
@@ -301,12 +302,18 @@ export default function ProductsPage() {
           </div>
 
           {!selected && (
-            <Select
-              label="Programa *"
-              value={form.programId}
-              onChange={(e) => setForm({ ...form, programId: e.target.value })}
-              options={[{ value: "", label: "— Selecione —" }, ...programs.map((p) => ({ value: p.id, label: `${p.name} (${PROGRAM_TYPES[p.type as keyof typeof PROGRAM_TYPES]?.label ?? p.type})` }))]}
-            />
+            <div>
+              <Select
+                label="Programa"
+                value={form.programId}
+                onChange={(e) => setForm({ ...form, programId: e.target.value })}
+                options={[
+                  { value: "", label: "Catálogo — disponível em todos os programas" },
+                  ...programs.map((p) => ({ value: p.id, label: `${p.name} (${PROGRAM_TYPES[p.type as keyof typeof PROGRAM_TYPES]?.label ?? p.type})` })),
+                ]}
+              />
+              <p className="text-xs text-slate-400 mt-1">Deixar em &ldquo;Catálogo&rdquo; para que o produto fique disponível em qualquer programa sem precisar recadastrá-lo.</p>
+            </div>
           )}
 
           {/* Código de barras */}
@@ -360,7 +367,7 @@ export default function ProductsPage() {
         </div>
         <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
           <Button variant="secondary" onClick={closeModal}>Cancelar</Button>
-          <Button onClick={handleSave} loading={saving} disabled={!form.name || !form.ncmCode || (!selected && !form.programId)}>Salvar</Button>
+          <Button onClick={handleSave} loading={saving} disabled={!form.name || !form.ncmCode}>Salvar</Button>
         </div>
       </Modal>
 

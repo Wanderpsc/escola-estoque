@@ -51,10 +51,8 @@ export default function PurchasesPage() {
   useEffect(() => { load(); }, [load]);
 
   const selectedProgramType = programs.find((p) => p.id === header.programId)?.type;
-  const filteredProducts = products.filter((p) =>
-    !header.programId || !selectedProgramType || p.programId === header.programId ||
-    programs.find((pr) => pr.id === header.programId)
-  );
+  // Catálogo (programId null) aparece em todos os programas
+  const filteredProducts = products.filter((p) => !header.programId || !p.programId || p.programId === header.programId);
 
   function addItem() { setItems((prev) => [...prev, { ...EMPTY_ITEM }]); }
   function removeItem(i: number) { setItems((prev) => prev.filter((_, idx) => idx !== i)); }

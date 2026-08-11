@@ -138,8 +138,9 @@ model Product {
   unit        String  // KG | UN | LT | CX | PCT | DZ | M
   minStock    Float   @default(0)
   barcode     String? // EAN-13, EAN-8, Code-128, etc.
-  programId   String
-  program     Program @relation(fields: [programId], references: [id])
+  // null = produto de catálogo (disponível em todos os programas da escola)
+  programId   String?
+  program     Program? @relation(fields: [programId], references: [id])
   schoolId    String
   school      School  @relation(fields: [schoolId], references: [id])
   active      Boolean @default(true)

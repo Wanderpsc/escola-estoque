@@ -12,7 +12,8 @@ export async function GET(req: NextRequest) {
   const programId = url.searchParams.get("programId");
 
   const where: any = role === "SUPER_ADMIN" ? {} : { schoolId: schoolId ?? "" };
-  if (programId) where.programId = programId;
+  // Quando filtrado por programa, inclui também produtos de catálogo (programId null)
+  if (programId) where.OR = [{ programId }, { programId: null }];
 
   const products = await db.product.findMany({
     where: { ...where, active: true },

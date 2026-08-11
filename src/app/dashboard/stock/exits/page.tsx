@@ -58,7 +58,8 @@ export default function StockExitsPage() {
   const selectedProgramType = programs.find((p) => p.id === form.programId)?.type;
   const filteredBalance = balance.filter((p) => {
     if (!form.programId) return true;
-    return selectedProgramType && p.program?.type === selectedProgramType;
+    // Catálogo (programId null/undefined) aparece em todos os programas
+    return selectedProgramType && (p.program?.type === selectedProgramType || !p.programId);
   });
 
   const selectedProduct = balance.find((p) => p.id === form.productId);
