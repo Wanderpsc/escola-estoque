@@ -25,7 +25,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
 
   const body = await req.json();
-  const { invoiceNumber, invoiceDate, supplierId, observations, items, newItems, action } = body;
+  const { invoiceNumber, invoiceDate, supplierId, observations, items, newItems, deleteItemIds, action } = body;
 
   // ── Ação: Finalizar NF ────────────────────────────────────────────────────
   if (action === "FINALIZE") {
@@ -59,13 +59,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json(reopened);
   }
 
+  // Exclui itens marcados para remoção
+  if (Array.isArray(deleteItemIds) && deleteItemIds.length > 0) {
+    await db.entryItem.deleteMany({ where: { id: { in: deleteItemIds }, entryId: id } });
+  }
+
   // Atualiza itens existentes se fornecidos
   if (Array.isArray(items)) {
     await Promise.all(
-      items.map((item: { id: string; quantity: number; unitPrice: number }) =>
+      items.map((item: { id: string; productId?: string; quantity: number; unitPrice: number }) =>
         db.entryItem.update({
           where: { id: item.id },
           data: {
+            ...(item.productId !== undefined && { productId: item.productId }),
             quantity: Number(item.quantity),
             unitPrice: Number(item.unitPrice),
             totalPrice: Number(item.quantity) * Number(item.unitPrice),

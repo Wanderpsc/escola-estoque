@@ -39,7 +39,8 @@ export default function StockEntriesPage() {
 
   // Edit state
   const [editEntry, setEditEntry] = useState<Entry | null>(null);
-  const [editItems, setEditItems] = useState<Array<{ id: string; quantity: string; unitPrice: string }>>([]);
+  const [editItems, setEditItems] = useState<Array<{ id: string; productId: string; productName: string; productUnit: string; quantity: string; unitPrice: string }>>([]);
+  const [editDeleteIds, setEditDeleteIds] = useState<string[]>([]);
   const [editNewItems, setEditNewItems] = useState<ItemRow[]>([]);
   const [editMeta, setEditMeta] = useState({ invoiceNumber: "", invoiceDate: "", observations: "" });
 
@@ -94,7 +95,8 @@ export default function StockEntriesPage() {
   function openEdit(entry: Entry) {
     setEditEntry(entry);
     setEditMeta({ invoiceNumber: entry.invoiceNumber, invoiceDate: entry.invoiceDate.split("T")[0], observations: entry.observations ?? "" });
-    setEditItems(entry.items.map((i) => ({ id: i.id, quantity: String(i.quantity), unitPrice: String(i.unitPrice) })));
+    setEditItems(entry.items.map((i) => ({ id: i.id, productId: i.productId, productName: i.product.name, productUnit: i.product.unit, quantity: String(i.quantity), unitPrice: String(i.unitPrice) })));
+    setEditDeleteIds([]);
     setEditNewItems([]);
   }
 
@@ -146,6 +148,8 @@ export default function StockEntriesPage() {
 
   async function handleEditSave() {
     if (!editEntry) return;
+    const remaining = editItems.length + editNewItems.filter((r) => r.productId && Number(r.quantity) > 0).length;
+    if (remaining === 0) { toast.error("A NF precisa ter ao menos 1 item"); return; }
     const validNew = editNewItems.filter((r) => r.productId && Number(r.quantity) > 0);
     setSaving(true);
     try {
@@ -153,7 +157,8 @@ export default function StockEntriesPage() {
         method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           invoiceNumber: editMeta.invoiceNumber, invoiceDate: editMeta.invoiceDate, observations: editMeta.observations,
-          items: editItems.map((i) => ({ id: i.id, quantity: Number(i.quantity), unitPrice: Number(i.unitPrice) })),
+          deleteItemIds: editDeleteIds,
+          items: editItems.map((i) => ({ id: i.id, productId: i.productId, quantity: Number(i.quantity), unitPrice: Number(i.unitPrice) })),
           newItems: validNew.map((r) => ({ productId: r.productId, quantity: Number(r.quantity), unitPrice: Number(r.unitPrice), lot: r.lot || undefined })),
         }),
       });
@@ -495,8 +500,8 @@ export default function StockEntriesPage() {
                   <Input label="Data de Entrada *" type="date" value={editMeta.invoiceDate} onChange={(e) => setEditMeta({ ...editMeta, invoiceDate: e.target.value })} />
                 </div>
                 <Input label="Observacoes" value={editMeta.observations} onChange={(e) => setEditMeta({ ...editMeta, observations: e.target.value })} />
-                <div className="grid grid-cols-[2fr_1fr_1fr_1fr] gap-2 text-xs text-slate-400 font-semibold uppercase px-1">
-                  <span>Produto</span><span>Qtd *</span><span>Vl. Unit. *</span><span>Total</span>
+                <div className="grid grid-cols-[2fr_1fr_1fr_1fr_auto] gap-2 text-xs text-slate-400 font-semibold uppercase px-1">
+                  <span>Produto</span><span>Qtd *</span><span>Vl. Unit. *</span><span>Total</span><span></span>
                 </div>
               </div>
 
@@ -504,14 +509,16 @@ export default function StockEntriesPage() {
               <div className="overflow-y-auto flex-1 space-y-2 pr-1">
                 {/* Itens existentes */}
                 {editItems.map((row, i) => {
-                  const orig = editEntry.items[i];
                   const total = Number(row.quantity || 0) * Number(row.unitPrice || 0);
                   return (
-                    <div key={row.id} className="grid grid-cols-[2fr_1fr_1fr_1fr] gap-2 items-center bg-slate-50 rounded-lg px-3 py-2">
-                      <span className="text-sm text-slate-700">{orig.product.name} <span className="text-slate-400">({orig.product.unit})</span></span>
+                    <div key={row.id} className="grid grid-cols-[2fr_1fr_1fr_1fr_auto] gap-2 items-center bg-slate-50 rounded-lg px-3 py-2">
+                      <select value={row.productId} onChange={(e) => setEditItems((prev) => prev.map((r, idx) => idx === i ? { ...r, productId: e.target.value } : r))} className="border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 w-full">
+                        {editFilteredProducts.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.unit})</option>)}
+                      </select>
                       <input type="number" step="0.001" min="0.001" value={row.quantity} onChange={(e) => setEditItems((prev) => prev.map((r, idx) => idx === i ? { ...r, quantity: e.target.value } : r))} className="border border-slate-300 rounded px-2 py-1.5 text-sm w-full focus:outline-none focus:ring-1 focus:ring-blue-500" />
                       <input type="number" step="0.01" min="0" value={row.unitPrice} onChange={(e) => setEditItems((prev) => prev.map((r, idx) => idx === i ? { ...r, unitPrice: e.target.value } : r))} className="border border-slate-300 rounded px-2 py-1.5 text-sm w-full focus:outline-none focus:ring-1 focus:ring-blue-500" />
                       <span className="text-sm font-semibold text-green-700">{formatCurrency(total)}</span>
+                      <button onClick={() => { setEditDeleteIds((prev) => [...prev, row.id]); setEditItems((prev) => prev.filter((_, idx) => idx !== i)); }} className="text-slate-300 hover:text-red-500 p-1" title="Excluir item"><X className="w-4 h-4" /></button>
                     </div>
                   );
                 })}
