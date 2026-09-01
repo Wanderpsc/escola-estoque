@@ -28,6 +28,7 @@ import {
   KeyRound,
   ClipboardList,
   Network,
+  Shield,
 } from "lucide-react";
 
 // Navegação do SUPER_ADMIN (dono do sistema)
@@ -36,6 +37,7 @@ const adminNavigation = [
   { name: "Escolas", href: "/dashboard/schools", icon: School },
   { name: "Licenças", href: "/dashboard/licenses", icon: KeyRound },
   { name: "Usuários", href: "/dashboard/users", icon: Users },
+  { name: "Log de Auditoria", href: "/dashboard/audit-logs", icon: Shield },
   { name: "Diagrama do Sistema", href: "/dashboard/system-diagram", icon: Network },
 ];
 
@@ -59,7 +61,7 @@ const schoolNavigation = [
     name: "Estoque",
     icon: ArrowUpDown,
     children: [
-      { name: "Entradas (NF)", href: "/dashboard/stock/entries", icon: ShoppingCart },
+      { name: "Compras (NF)", href: "/dashboard/stock/entries", icon: ShoppingCart },
       { name: "Recebimento de Mercadorias", href: "/dashboard/stock/receiving", icon: PackageCheck },
       { name: "Saídas / Consumo", href: "/dashboard/stock/exits", icon: ArrowUpDown },
       { name: "Saldo Atual", href: "/dashboard/stock/balance", icon: Package },
@@ -68,11 +70,13 @@ const schoolNavigation = [
   { name: "Entregas", href: "/dashboard/deliveries", icon: ClipboardList },
   { name: "Financeiro", href: "/dashboard/financial", icon: DollarSign },
   { name: "Relatórios", href: "/dashboard/reports", icon: BarChart3 },
+  { name: "Log de Auditoria", href: "/dashboard/audit-logs", icon: Shield, role: ["SCHOOL_ADMIN", "MANAGER"] },
 ];
 
 // Navegação do Fornecedor (acesso limitado)
 const supplierNavigation = [
   { name: "Painel", href: "/dashboard", icon: LayoutDashboard },
+  { name: "Produtos (NCM)", href: "/dashboard/products", icon: Package },
   { name: "Minhas Entregas", href: "/dashboard/deliveries", icon: ClipboardList },
 ];
 
